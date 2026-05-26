@@ -1,0 +1,14 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --silent
+
+COPY public/ ./public/
+COPY src/ ./src/
+
+ENV CI=true
+
+# CI=true makes react-scripts test exit with a non-zero code on failures
+CMD ["npm", "run", "test:ci"]
