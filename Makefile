@@ -58,3 +58,25 @@ backup:
 ## Restore a backup: make restore FILE=backup_20260101_120000.sql
 restore:
 	docker compose exec -T db psql -U finance -d finance < $(FILE)
+
+## Run backend unit tests
+test-backend:
+	cd backend && go test ./... -v
+
+## Run backend tests with coverage report
+test-backend-coverage:
+	cd backend && go test ./... -coverprofile=coverage.out && go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: backend/coverage.html"
+
+## Run frontend unit tests (watch mode)
+test-frontend:
+	cd frontend && npm test
+
+## Run frontend tests in CI mode (no watch, with coverage)
+test-frontend-ci:
+	cd frontend && npm run test:ci
+
+## Run all tests (CI-friendly, no watch)
+test:
+	cd backend && go test ./... -v
+	cd frontend && npm run test:ci
