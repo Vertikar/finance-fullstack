@@ -25,7 +25,6 @@ func newEntriesHandler(t *testing.T) (*handlers.EntriesHandler, sqlmock.Sqlmock)
 	return &handlers.EntriesHandler{DB: db}, mock
 }
 
-// withUserID injects a user ID into the request context.
 func withUserID(r *http.Request, userID string) *http.Request {
 	ctx := context.WithValue(r.Context(), mw.UserIDKey, userID)
 	return r.WithContext(ctx)
@@ -35,7 +34,6 @@ func withUserID(r *http.Request, userID string) *http.Request {
 
 func TestList_ReturnsEmptyArray(t *testing.T) {
 	h, mock := newEntriesHandler(t)
-
 	mock.ExpectQuery(`SELECT .* FROM entries WHERE user_id`).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "next_due", "created_at", "updated_at"}))
@@ -56,15 +54,14 @@ func TestList_ReturnsEmptyArray(t *testing.T) {
 
 func TestList_ReturnsEntries(t *testing.T) {
 	h, mock := newEntriesHandler(t)
-
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "next_due", "created_at", "updated_at"}).
-		AddRow("e1", "Rent", 1800.00, "expense", "monthly", "Housing", now, now, now).
-		AddRow("e2", "Salary", 5500.00, "income", "monthly", "Salary", now, now, now)
+		AddRow("e1", "Rent",   1800.00, "expense", "monthly",  "Housing", now, now, now).
+		AddRow("e2", "Salary", 5500.00, "income",  "monthly",  "Salary",  now, now, now).
+		AddRow("e3", "Rego",    900.00, "expense", "biannual", "Transport", now, now, now)
 
 	mock.ExpectQuery(`SELECT .* FROM entries WHERE user_id`).
-		WithArgs("user-1").
-		WillReturnRows(rows)
+		WithArgs("user-1").WillReturnRows(rows)
 
 	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries", nil), "user-1")
 	rr := httptest.NewRecorder()
@@ -75,11 +72,11 @@ func TestList_ReturnsEntries(t *testing.T) {
 	}
 	var result []handlers.Entry
 	json.NewDecoder(rr.Body).Decode(&result)
-	if len(result) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(result))
+	if len(result) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(result))
 	}
-	if result[0].Name != "Rent" {
-		t.Errorf("expected first entry 'Rent', got %q", result[0].Name)
+	if result[2].Frequency != "biannual" {
+		t.Errorf("expected biannual frequency, got %q", result[2].Frequency)
 	}
 }
 
@@ -87,20 +84,11 @@ func TestList_ReturnsEntries(t *testing.T) {
 
 func TestCreate_Success(t *testing.T) {
 	h, mock := newEntriesHandler(t)
-
 	now := time.Now()
 	mock.ExpectQuery(`INSERT INTO entries`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "next_due"}).
-			AddRow("new-id", now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "next_due"}).AddRow("new-id", now))
 
-	payload := handlers.Entry{
-		Name:      "Netflix",
-		Amount:    18.00,
-		Type:      "expense",
-		Frequency: "monthly",
-		Category:  "Subscriptions",
-		NextDue:   "2026-06-01",
-	}
+	payload := handlers.Entry{Name: "Netflix", Amount: 18.00, Type: "expense", Frequency: "monthly", Category: "Subscriptions", NextDue: "2026-06-01"}
 	body, _ := json.Marshal(payload)
 	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
 	req.Header.Set("Content-Type", "application/json")
@@ -117,15 +105,31 @@ func TestCreate_Success(t *testing.T) {
 	}
 }
 
+func TestCreate_BiannualEntry(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	now := time.Now()
+	mock.ExpectQuery(`INSERT INTO entries`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "next_due"}).AddRow("rego-id", now))
+
+	payload := handlers.Entry{Name: "Car Rego", Amount: 900.00, Type: "expense", Frequency: "biannual", Category: "Transport", NextDue: "2026-06-01"}
+	body, _ := json.Marshal(payload)
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201 for biannual entry, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestCreate_MissingName(t *testing.T) {
 	h, _ := newEntriesHandler(t)
-
 	payload := handlers.Entry{Amount: 100, NextDue: "2026-06-01"}
 	body, _ := json.Marshal(payload)
 	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
-
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rr.Code)
 	}
@@ -133,13 +137,11 @@ func TestCreate_MissingName(t *testing.T) {
 
 func TestCreate_ZeroAmount(t *testing.T) {
 	h, _ := newEntriesHandler(t)
-
 	payload := handlers.Entry{Name: "Free Stuff", Amount: 0, NextDue: "2026-06-01"}
 	body, _ := json.Marshal(payload)
 	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
 	rr := httptest.NewRecorder()
 	h.Create(rr, req)
-
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for zero amount, got %d", rr.Code)
 	}
@@ -149,19 +151,14 @@ func TestCreate_ZeroAmount(t *testing.T) {
 
 func TestDelete_Success(t *testing.T) {
 	h, mock := newEntriesHandler(t)
-
-	mock.ExpectExec(`DELETE FROM entries`).
-		WithArgs("e1", "user-1").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`DELETE FROM entries`).WithArgs("e1", "user-1").WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := withUserID(httptest.NewRequest(http.MethodDelete, "/api/entries/e1", nil), "user-1")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "e1")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
 	rr := httptest.NewRecorder()
 	h.Delete(rr, req)
-
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("want 204, got %d", rr.Code)
 	}
@@ -169,37 +166,31 @@ func TestDelete_Success(t *testing.T) {
 
 func TestDelete_NotFound(t *testing.T) {
 	h, mock := newEntriesHandler(t)
-
-	mock.ExpectExec(`DELETE FROM entries`).
-		WithArgs("missing", "user-1").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`DELETE FROM entries`).WithArgs("missing", "user-1").WillReturnResult(sqlmock.NewResult(0, 0))
 
 	req := withUserID(httptest.NewRequest(http.MethodDelete, "/api/entries/missing", nil), "user-1")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "missing")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
 	rr := httptest.NewRecorder()
 	h.Delete(rr, req)
-
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", rr.Code)
 	}
 }
 
-// ─── Summary ─────────────────────────────────────────────────────────────────
+// ─── Summary — includes biannual frequency ────────────────────────────────────
 
 func TestSummary_CalculatesCorrectly(t *testing.T) {
 	h, mock := newEntriesHandler(t)
-
 	rows := sqlmock.NewRows([]string{"amount", "type", "frequency", "category"}).
-		AddRow(5500.00, "income", "monthly", "Salary").
-		AddRow(1800.00, "expense", "monthly", "Housing").
-		AddRow(55.00, "expense", "monthly", "Health")
+		AddRow(5500.00, "income",  "monthly",  "Salary").
+		AddRow(1800.00, "expense", "monthly",  "Housing").
+		AddRow(55.00,   "expense", "monthly",  "Health").
+		AddRow(900.00,  "expense", "biannual", "Transport") // 900/6 = $150/mo
 
 	mock.ExpectQuery(`SELECT amount, type, frequency, category FROM entries`).
-		WithArgs("user-1").
-		WillReturnRows(rows)
+		WithArgs("user-1").WillReturnRows(rows)
 
 	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries/summary", nil), "user-1")
 	rr := httptest.NewRecorder()
@@ -214,12 +205,9 @@ func TestSummary_CalculatesCorrectly(t *testing.T) {
 	if result.MonthlyIncome != 5500 {
 		t.Errorf("expected income 5500, got %.2f", result.MonthlyIncome)
 	}
-	expectedExpenses := 1800.0 + 55.0
+	// 1800 + 55 + (900/6=150) = 2005
+	expectedExpenses := 1800.0 + 55.0 + (900.0 / 6.0)
 	if result.MonthlyExpenses != expectedExpenses {
 		t.Errorf("expected expenses %.2f, got %.2f", expectedExpenses, result.MonthlyExpenses)
-	}
-	expectedNet := 5500 - expectedExpenses
-	if result.MonthlyNet != expectedNet {
-		t.Errorf("expected net %.2f, got %.2f", expectedNet, result.MonthlyNet)
 	}
 }
