@@ -34,12 +34,13 @@ type Summary struct {
 	ByCategory      map[string]float64 `json:"byCategory"`
 }
 
-// Monthly multipliers
+// Monthly multipliers — biannual = every 6 months = 2 times per year
 var freqMultiplier = map[string]float64{
 	"weekly":      52.0 / 12.0,
 	"fortnightly": 26.0 / 12.0,
 	"monthly":     1.0,
 	"quarterly":   1.0 / 3.0,
+	"biannual":    1.0 / 6.0,
 	"yearly":      1.0 / 12.0,
 }
 
