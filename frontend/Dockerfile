@@ -2,7 +2,9 @@
 FROM node:20-alpine AS builder
 
 WORKDIR /app
-COPY package.json package-lock.json* ./
+
+# Copy lockfile first for layer caching — npm ci requires package-lock.json.
+COPY package.json package-lock.json ./
 RUN npm ci --silent
 
 COPY public/ ./public/
