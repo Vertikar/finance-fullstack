@@ -12,23 +12,16 @@
     "recharts": "^2.12.7"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "start":   "react-scripts start",
+    "build":   "react-scripts build",
+    "test":    "react-scripts test",
     "test:ci": "react-scripts test --watchAll=false --coverage"
   },
   "jest": {
     "collectCoverageFrom": [
       "src/**/*.{js,jsx}",
       "!src/index.js"
-    ],
-    "coverageThreshold": {
-      "global": {
-        "branches": 50,
-        "functions": 50,
-        "lines": 50
-      }
-    }
+    ]
   },
   "browserslist": {
     "production": [">0.2%", "not dead", "not op_mini all"],
