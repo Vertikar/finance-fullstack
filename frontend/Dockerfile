@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy lockfile first for layer caching — npm ci requires package-lock.json.
 COPY package.json package-lock.json ./
-RUN npm ci --silent
+RUN npm ci
 
 COPY public/ ./public/
 COPY src/ ./src/
