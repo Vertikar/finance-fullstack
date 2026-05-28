@@ -92,16 +92,23 @@ describe('buildCashFlow', () => {
     expect(buildCashFlow(biannual, today, 365)).toHaveLength(2);
   });
 
+  // A 0-day window covers only today itself (end = today, d <= end is inclusive)
+  test('0-day window returns only events due today', () => {
+    const todayOnly = [{ id: '4', name: 'Due Today', amount: 100, type: 'expense',
+      frequency: 'monthly', category: 'Utilities', nextDue: '2026-06-01' }];
+    const futureOnly = [{ id: '5', name: 'Future', amount: 100, type: 'expense',
+      frequency: 'monthly', category: 'Utilities', nextDue: '2026-06-02' }];
+    expect(buildCashFlow(todayOnly, today, 0)).toHaveLength(1);  // today is included
+    expect(buildCashFlow(futureOnly, today, 0)).toHaveLength(0); // tomorrow is excluded
+  });
+
   test('events have YYYY-MM-DD dueStr', () => {
     buildCashFlow(entries, today, 90).forEach(e =>
       expect(e.dueStr).toMatch(/^\d{4}-\d{2}-\d{2}$/));
   });
 
-  test('no events when window is 0 days', () =>
-    expect(buildCashFlow(entries, today, 0)).toHaveLength(0));
-
   test('past nextDue is advanced to future', () => {
-    const past = [{ id: '4', name: 'Old Bill', amount: 100, type: 'expense',
+    const past = [{ id: '6', name: 'Old Bill', amount: 100, type: 'expense',
       frequency: 'monthly', category: 'Utilities', nextDue: '2026-01-01' }];
     buildCashFlow(past, today, 60).forEach(e =>
       expect(new Date(e.dueStr).getTime()).toBeGreaterThanOrEqual(today.getTime()));
