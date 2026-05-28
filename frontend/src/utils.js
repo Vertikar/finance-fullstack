@@ -87,7 +87,7 @@ export function buildCashFlow(entries, today, days = 90) {
   for (const entry of entries) {
     let d = new Date(entry.nextDue);
     while (d < today) d = addFreq(d, entry.frequency);
-    while (d <= end) {
+    while (d < end) {
       events.push({
         ...entry,
         dueDate: new Date(d),
