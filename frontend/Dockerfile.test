@@ -2,13 +2,13 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# package-lock.json is pinned to npm 9 (node:20). Do not regenerate with Node 22+.
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps --silent
 
 COPY public/ ./public/
 COPY src/ ./src/
 
 ENV CI=true
 
-# CI=true makes react-scripts test exit with a non-zero code on failures
 CMD ["npm", "run", "test:ci"]
