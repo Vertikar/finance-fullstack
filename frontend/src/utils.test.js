@@ -56,10 +56,17 @@ describe('savingsRate', () => {
 });
 
 // ─── buildCashFlow ────────────────────────────────────────────────────────────
+//
+// buildCashFlow uses a half-open window [today, today+days):
+//   - Events on `today` ARE included  (d >= today after the advance loop)
+//   - Events on `today+days` are NOT  (loop condition is d < end, strictly less)
+//
+// Important: use UTC midnight (new Date('YYYY-MM-DD T00:00:00.000Z')) as the
+// `today` anchor so it matches how date strings in nextDue are parsed by
+// new Date('YYYY-MM-DD') — both resolve to UTC midnight, avoiding timezone drift.
 
 describe('buildCashFlow', () => {
-  const today = new Date('2026-06-01');
-  today.setHours(0, 0, 0, 0);
+  const today = new Date('2026-06-01T00:00:00.000Z'); // UTC midnight — stable across all timezones
 
   const entries = [
     { id: '1', name: 'Rent',   amount: 1800, type: 'expense', frequency: 'monthly',
@@ -83,23 +90,33 @@ describe('buildCashFlow', () => {
   test('biannual entry appears once over 90 days', () => {
     const biannual = [{ id: '3', name: 'Car Rego', amount: 900, type: 'expense',
       frequency: 'biannual', category: 'Transport', nextDue: '2026-06-01' }];
+    // Window [Jun 1, Aug 30) — only Jun 1 falls inside
     expect(buildCashFlow(biannual, today, 90)).toHaveLength(1);
   });
 
   test('biannual entry appears twice over 365 days', () => {
     const biannual = [{ id: '3', name: 'Car Rego', amount: 900, type: 'expense',
       frequency: 'biannual', category: 'Transport', nextDue: '2026-06-01' }];
+    // Window [Jun 1 2026, Jun 1 2027) — Jun 1 2027 is the exclusive end,
+    // so only Jun 1 2026 and Dec 1 2026 are included → 2 events
     expect(buildCashFlow(biannual, today, 365)).toHaveLength(2);
   });
 
-  // A 0-day window covers only today itself (end = today, d <= end is inclusive)
-  test('0-day window returns only events due today', () => {
-    const todayOnly = [{ id: '4', name: 'Due Today', amount: 100, type: 'expense',
+  // With days=0: end = today, window is [today, today) = empty set → 0 events always
+  test('0-day window returns no events', () => {
+    const entry = [{ id: '4', name: 'Any', amount: 100, type: 'expense',
       frequency: 'monthly', category: 'Utilities', nextDue: '2026-06-01' }];
-    const futureOnly = [{ id: '5', name: 'Future', amount: 100, type: 'expense',
+    expect(buildCashFlow(entry, today, 0)).toHaveLength(0);
+  });
+
+  // Use a 1-day window to confirm today's events ARE included
+  test('1-day window includes events due today but not tomorrow', () => {
+    const dueToday    = [{ id: '5', name: 'Due Today',    amount: 100, type: 'expense',
+      frequency: 'monthly', category: 'Utilities', nextDue: '2026-06-01' }];
+    const dueTomorrow = [{ id: '6', name: 'Due Tomorrow', amount: 100, type: 'expense',
       frequency: 'monthly', category: 'Utilities', nextDue: '2026-06-02' }];
-    expect(buildCashFlow(todayOnly, today, 0)).toHaveLength(1);  // today is included
-    expect(buildCashFlow(futureOnly, today, 0)).toHaveLength(0); // tomorrow is excluded
+    expect(buildCashFlow(dueToday,    today, 1)).toHaveLength(1); // Jun 1 in [Jun 1, Jun 2) ✓
+    expect(buildCashFlow(dueTomorrow, today, 1)).toHaveLength(0); // Jun 2 not in [Jun 1, Jun 2) ✗
   });
 
   test('events have YYYY-MM-DD dueStr', () => {
@@ -107,10 +124,12 @@ describe('buildCashFlow', () => {
       expect(e.dueStr).toMatch(/^\d{4}-\d{2}-\d{2}$/));
   });
 
-  test('past nextDue is advanced to future', () => {
-    const past = [{ id: '6', name: 'Old Bill', amount: 100, type: 'expense',
+  test('past nextDue is advanced into the window before counting', () => {
+    const past = [{ id: '7', name: 'Old Bill', amount: 100, type: 'expense',
       frequency: 'monthly', category: 'Utilities', nextDue: '2026-01-01' }];
     buildCashFlow(past, today, 60).forEach(e =>
-      expect(new Date(e.dueStr).getTime()).toBeGreaterThanOrEqual(today.getTime()));
+      expect(new Date(e.dueStr).getTime()).toBeGreaterThanOrEqual(
+        new Date('2026-06-01').getTime()
+      ));
   });
 });
