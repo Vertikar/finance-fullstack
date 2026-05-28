@@ -244,7 +244,15 @@ make ps                  # show running containers
 make psql                # open interactive postgres prompt
 make backup              # dump to backup_YYYYMMDD_HHMMSS.sql
 make restore FILE=<path> # restore from a SQL dump
-make reset-db            # ⚠ wipe volume + restart fresh (dev only)
+make reset-db            # ⚠️  DESTRUCTIVE — permanently deletes ALL data (see below)
+
+> ⚠️  **`make reset-db` is destructive and irreversible.**
+> It runs `docker compose down -v`, which permanently deletes the `postgres_data` Docker
+> volume and **all financial data stored in it**. It then rebuilds and restarts all
+> services from scratch.
+>
+> Only run this in development when you need a clean slate. Always run `make backup`
+> first if you have data you want to keep. Never run it against a production instance.
 
 # ── Secrets ──────────────────────────────────────
 make secret              # generate a 32-byte hex JWT secret
