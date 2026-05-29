@@ -1,0 +1,26 @@
+# Run all tests in Docker — no local Go/Node required.
+# Usage:
+#   make test-docker          # run everything, see results, remove containers
+#   make test-docker-backend  # backend only
+#   make test-docker-frontend # frontend only
+
+services:
+
+  # ── Backend tests ─────────────────────────────────────────────────────────
+  test-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: finance-test-backend
+    environment:
+      GONOSUMDB: "*"
+      GOPROXY: direct
+    profiles: [backend, all]
+
+  # ── Frontend tests ────────────────────────────────────────────────────────
+  test-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+    container_name: finance-test-frontend
+    profiles: [frontend, all]

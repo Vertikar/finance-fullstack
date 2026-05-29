@@ -3,12 +3,20 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "./api";
 import AuthScreen from "./AuthScreen";
 
-const FREQUENCIES = ["weekly", "fortnightly", "monthly", "quarterly", "yearly"];
-const FREQ_LABELS = { weekly: "Weekly", fortnightly: "Fortnightly", monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly" };
+const FREQUENCIES = ["weekly", "fortnightly", "monthly", "quarterly", "biannual", "yearly"];
+const FREQ_LABELS  = {
+  weekly:      "Weekly",
+  fortnightly: "Fortnightly",
+  monthly:     "Monthly",
+  quarterly:   "Quarterly",
+  biannual:    "Biannual",
+  yearly:      "Yearly",
+};
 
 const CATEGORIES = {
-  income: ["Salary", "Freelance", "Investment", "Rental", "Government", "Other Income"],
-  expense: ["Housing", "Transport", "Food & Groceries", "Utilities", "Insurance", "Health", "Entertainment", "Subscriptions", "Education", "Savings", "Clothing", "Other"]
+  income:  ["Salary", "Freelance", "Investment", "Rental", "Government", "Other Income"],
+  expense: ["Housing", "Transport", "Food & Groceries", "Utilities", "Insurance",
+            "Health", "Entertainment", "Subscriptions", "Education", "Savings", "Clothing", "Other"],
 };
 
 const CAT_COLORS = {
@@ -17,25 +25,29 @@ const CAT_COLORS = {
   "Housing": "#f87171", "Transport": "#fb923c", "Food & Groceries": "#fbbf24",
   "Utilities": "#a78bfa", "Insurance": "#60a5fa", "Health": "#f472b6",
   "Entertainment": "#c084fc", "Subscriptions": "#22d3ee", "Education": "#818cf8",
-  "Savings": "#4ade80", "Clothing": "#f9a8d4", "Other": "#94a3b8"
+  "Savings": "#4ade80", "Clothing": "#f9a8d4", "Other": "#94a3b8",
 };
 
 function toMonthly(amount, freq) {
-  const m = { weekly: 52/12, fortnightly: 26/12, monthly: 1, quarterly: 1/3, yearly: 1/12 };
+  const m = {
+    weekly: 52/12, fortnightly: 26/12, monthly: 1,
+    quarterly: 1/3, biannual: 1/6, yearly: 1/12,
+  };
   return amount * (m[freq] || 1);
 }
 
 function addFreq(date, freq) {
   const d = new Date(date);
-  if (freq === "weekly") d.setDate(d.getDate() + 7);
+  if      (freq === "weekly")      d.setDate(d.getDate() + 7);
   else if (freq === "fortnightly") d.setDate(d.getDate() + 14);
-  else if (freq === "monthly") d.setMonth(d.getMonth() + 1);
-  else if (freq === "quarterly") d.setMonth(d.getMonth() + 3);
-  else if (freq === "yearly") d.setFullYear(d.getFullYear() + 1);
+  else if (freq === "monthly")     d.setMonth(d.getMonth() + 1);
+  else if (freq === "quarterly")   d.setMonth(d.getMonth() + 3);
+  else if (freq === "biannual")    d.setMonth(d.getMonth() + 6);
+  else if (freq === "yearly")      d.setFullYear(d.getFullYear() + 1);
   return d;
 }
 
-const fmt = (n) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Math.abs(n));
+const fmt     = (n) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Math.abs(n));
 const fmtFull = (n) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
 const EMPTY_FORM = { name: "", amount: "", type: "expense", frequency: "monthly", category: "Housing", nextDue: new Date().toISOString().split("T")[0] };
 
@@ -44,14 +56,14 @@ function getStoredUser() {
 }
 
 export default function App() {
-  const [user, setUser] = useState(getStoredUser);
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState("dashboard");
-  const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [user,       setUser]       = useState(getStoredUser);
+  const [entries,    setEntries]    = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [tab,        setTab]        = useState("dashboard");
+  const [modal,      setModal]      = useState(null);
+  const [form,       setForm]       = useState(EMPTY_FORM);
   const [filterType, setFilterType] = useState("all");
-  const [apiError, setApiError] = useState("");
+  const [apiError,   setApiError]   = useState("");
 
   const loadEntries = useCallback(async () => {
     setLoading(true);
@@ -78,11 +90,11 @@ export default function App() {
   if (!user) return <AuthScreen onAuth={(u) => setUser(u)} />;
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const income = entries.filter(e => e.type === "income");
+  const income   = entries.filter(e => e.type === "income");
   const expenses = entries.filter(e => e.type === "expense");
-  const monthlyIncome = income.reduce((s, e) => s + toMonthly(e.amount, e.frequency), 0);
+  const monthlyIncome   = income.reduce((s, e)   => s + toMonthly(e.amount, e.frequency), 0);
   const monthlyExpenses = expenses.reduce((s, e) => s + toMonthly(e.amount, e.frequency), 0);
-  const monthlyNet = monthlyIncome - monthlyExpenses;
+  const monthlyNet  = monthlyIncome - monthlyExpenses;
   const savingsRate = monthlyIncome > 0 ? (monthlyNet / monthlyIncome) * 100 : 0;
 
   const upcoming = entries
@@ -101,8 +113,8 @@ export default function App() {
     if (d === 0) return "Today"; if (d === 1) return "Tomorrow"; return `${d}d`;
   }
 
-  function openAdd() { setForm({ ...EMPTY_FORM, nextDue: new Date().toISOString().split("T")[0] }); setModal("add"); }
-  function openEdit(e) { setForm({ ...e }); setModal("edit"); }
+  function openAdd()  { setForm({ ...EMPTY_FORM, nextDue: new Date().toISOString().split("T")[0] }); setModal("add"); }
+  function openEdit(e){ setForm({ ...e }); setModal("edit"); }
 
   async function saveEntry() {
     if (!form.name.trim() || !form.amount) return;
@@ -126,7 +138,7 @@ export default function App() {
     } catch (e) { setApiError(e.message); }
   }
 
-  // Cash flow
+  // Cash flow — next 90 days
   const cfEnd = new Date(today); cfEnd.setDate(cfEnd.getDate() + 90);
   const cfEvents = [];
   entries.forEach(e => {
@@ -144,9 +156,9 @@ export default function App() {
   const listEntries = filterType === "all" ? entries : entries.filter(e => e.type === filterType);
 
   const S = {
-    card: { background: "#12141e", border: "1px solid #191d2e", borderRadius: 12, padding: "18px 20px" },
+    card:  { background: "#12141e", border: "1px solid #191d2e", borderRadius: 12, padding: "18px 20px" },
     label: { fontFamily: "'DM Mono',monospace", fontSize: 9, letterSpacing: 2.5, color: "#3a3f5a", textTransform: "uppercase", marginBottom: 10 },
-    mono: { fontFamily: "'DM Mono',monospace" },
+    mono:  { fontFamily: "'DM Mono',monospace" },
   };
 
   return (
@@ -171,7 +183,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Error banner */}
       {apiError && (
         <div style={{ background: "#2a1010", borderBottom: "1px solid #f8717133", padding: "10px 28px", display: "flex", justifyContent: "space-between", ...S.mono, fontSize: 11, color: "#f87171" }}>
           <span>⚠ {apiError}</span>
@@ -181,31 +192,29 @@ export default function App() {
 
       {/* TABS */}
       <div style={{ display: "flex", background: "#0f1119", borderBottom: "1px solid #191d2e", padding: "0 20px" }}>
-        {[["dashboard", "Overview"], ["payments", "Payments"], ["cashflow", "Cash Flow"]].map(([key, label]) => (
+        {[["dashboard","Overview"],["payments","Payments"],["cashflow","Cash Flow"]].map(([key,label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: "none", border: "none", color: tab === key ? "#c4a24a" : "#3a3f5a",
             padding: "14px 18px", cursor: "pointer", ...S.mono, fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase",
-            borderBottom: tab === key ? "2px solid #c4a24a" : "2px solid transparent", transition: "color .15s"
+            borderBottom: tab === key ? "2px solid #c4a24a" : "2px solid transparent", transition: "color .15s",
           }}>{label}</button>
         ))}
       </div>
 
-      {loading && (
-        <div style={{ textAlign: "center", padding: 60, ...S.mono, fontSize: 11, color: "#3a3f5a", letterSpacing: 2 }}>Loading…</div>
-      )}
+      {loading && <div style={{ textAlign: "center", padding: 60, ...S.mono, fontSize: 11, color: "#3a3f5a", letterSpacing: 2 }}>Loading…</div>}
 
       {!loading && (
         <div style={{ padding: "24px 28px", maxWidth: 960, margin: "0 auto" }}>
 
-          {/* DASHBOARD */}
+          {/* ── DASHBOARD ── */}
           {tab === "dashboard" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
                 {[
-                  { label: "Monthly Income", val: fmt(monthlyIncome), sub: `${fmt(monthlyIncome * 12)}/yr`, color: "#4ade80" },
-                  { label: "Monthly Expenses", val: fmt(monthlyExpenses), sub: `${fmt(monthlyExpenses * 12)}/yr`, color: "#f87171" },
-                  { label: "Monthly Net", val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet), sub: `${savingsRate.toFixed(1)}% savings rate`, color: monthlyNet >= 0 ? "#4ade80" : "#f87171" },
-                  { label: "Annual Net", val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet * 12), sub: `${entries.length} recurring entries`, color: "#c4a24a" },
+                  { label: "Monthly Income",   val: fmt(monthlyIncome),   sub: `${fmt(monthlyIncome * 12)}/yr`,   color: "#4ade80" },
+                  { label: "Monthly Expenses",  val: fmt(monthlyExpenses), sub: `${fmt(monthlyExpenses * 12)}/yr`, color: "#f87171" },
+                  { label: "Monthly Net",       val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet), sub: `${savingsRate.toFixed(1)}% savings rate`, color: monthlyNet >= 0 ? "#4ade80" : "#f87171" },
+                  { label: "Annual Net",        val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet * 12), sub: `${entries.length} recurring entries`, color: "#c4a24a" },
                 ].map(c => (
                   <div key={c.label} style={S.card}>
                     <div style={S.label}>{c.label}</div>
@@ -273,7 +282,7 @@ export default function App() {
             </div>
           )}
 
-          {/* PAYMENTS */}
+          {/* ── PAYMENTS ── */}
           {tab === "payments" && (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -282,7 +291,7 @@ export default function App() {
                     <button key={v} onClick={() => setFilterType(v)} style={{
                       background: filterType === v ? "#c4a24a" : "#12141e", color: filterType === v ? "#0b0d14" : "#3a3f5a",
                       border: "1px solid " + (filterType === v ? "#c4a24a" : "#191d2e"),
-                      borderRadius: 8, padding: "7px 16px", cursor: "pointer", ...S.mono, fontSize: 11, letterSpacing: 1
+                      borderRadius: 8, padding: "7px 16px", cursor: "pointer", ...S.mono, fontSize: 11, letterSpacing: 1,
                     }}>{l}</button>
                   ))}
                 </div>
@@ -316,9 +325,9 @@ export default function App() {
 
               <div style={{ marginTop: 20, background: "#12141e", border: "1px solid #191d2e", borderRadius: 11, padding: "14px 20px", display: "flex", justifyContent: "space-around" }}>
                 {[
-                  { label: "Total Income", val: fmt(monthlyIncome) + "/mo", color: "#4ade80" },
+                  { label: "Total Income",   val: fmt(monthlyIncome)   + "/mo", color: "#4ade80" },
                   { label: "Total Expenses", val: fmt(monthlyExpenses) + "/mo", color: "#f87171" },
-                  { label: "Net Position", val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet) + "/mo", color: monthlyNet >= 0 ? "#4ade80" : "#f87171" },
+                  { label: "Net Position",   val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet) + "/mo", color: monthlyNet >= 0 ? "#4ade80" : "#f87171" },
                 ].map(c => (
                   <div key={c.label} style={{ textAlign: "center" }}>
                     <div style={{ ...S.mono, fontSize: 9, color: "#3a3f5a", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>{c.label}</div>
@@ -329,21 +338,21 @@ export default function App() {
             </div>
           )}
 
-          {/* CASH FLOW */}
+          {/* ── CASH FLOW ── */}
           {tab === "cashflow" && (
             <div>
               <div style={{ ...S.mono, fontSize: 9, letterSpacing: 2.5, color: "#c4a24a", textTransform: "uppercase", marginBottom: 20 }}>Cash Flow · Next 90 Days</div>
               {Object.entries(cfMonths).map(([monthKey, evts]) => {
-                const mIncome = evts.filter(e => e.type === "income").reduce((s,e) => s+e.amount, 0);
-                const mExpenses = evts.filter(e => e.type === "expense").reduce((s,e) => s+e.amount, 0);
-                const mNet = mIncome - mExpenses;
-                const monthLabel = new Date(monthKey+"-01").toLocaleDateString("en-AU", { month: "long", year: "numeric" });
+                const mIncome   = evts.filter(e => e.type === "income").reduce((s,e) => s + e.amount, 0);
+                const mExpenses = evts.filter(e => e.type === "expense").reduce((s,e) => s + e.amount, 0);
+                const mNet      = mIncome - mExpenses;
+                const monthLabel = new Date(monthKey + "-01").toLocaleDateString("en-AU", { month: "long", year: "numeric" });
                 return (
                   <div key={monthKey} style={{ ...S.card, marginBottom: 16, borderRadius: 13 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <div style={{ ...S.mono, fontSize: 12 }}>{monthLabel}</div>
                       <div style={{ display: "flex", gap: 16 }}>
-                        {mIncome > 0 && <span style={{ ...S.mono, fontSize: 11, color: "#4ade80" }}>+{fmt(mIncome)}</span>}
+                        {mIncome   > 0 && <span style={{ ...S.mono, fontSize: 11, color: "#4ade80" }}>+{fmt(mIncome)}</span>}
                         {mExpenses > 0 && <span style={{ ...S.mono, fontSize: 11, color: "#f87171" }}>–{fmt(mExpenses)}</span>}
                         <span style={{ ...S.mono, fontSize: 11, color: mNet >= 0 ? "#4ade80" : "#f87171", borderLeft: "1px solid #252840", paddingLeft: 14 }}>{mNet >= 0 ? "+" : "–"}{fmt(mNet)} net</span>
                       </div>
@@ -370,7 +379,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL */}
+      {/* ── MODAL ── */}
       {modal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(5,6,12,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 24 }}
           onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
@@ -380,7 +389,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
-                <div style={{ ...S.label }}>Name</div>
+                <div style={S.label}>Name</div>
                 <input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} placeholder="e.g. Netflix, Rent, Salary…" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

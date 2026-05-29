@@ -2,8 +2,12 @@
 FROM node:20-alpine AS builder
 
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --silent
+
+# Copy lockfile first for layer caching.
+# package-lock.json is generated with npm 9 (ships with node:20) — do not
+# regenerate it with a different Node version or the lockfile will go out of sync.
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps --silent
 
 COPY public/ ./public/
 COPY src/ ./src/

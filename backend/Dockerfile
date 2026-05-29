@@ -4,7 +4,17 @@ FROM golang:1.22-alpine AS builder
 RUN apk add --no-cache git
 
 WORKDIR /app
-COPY go.mod go.sum* ./
+
+# go.mod uses `replace` directives for github.com mirrors of blocked packages.
+# GONOSUMDB/GOPROXY can be overridden at build time for different environments.
+ARG GONOSUMDB=*
+ARG GOPROXY=direct
+ENV GONOSUMDB=${GONOSUMDB}
+ENV GOPROXY=${GOPROXY}
+
+# Copy dependency manifests first — separate layer for cache efficiency.
+# go.sum must be committed; run 'go mod tidy' locally if this step fails.
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
