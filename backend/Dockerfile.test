@@ -1,6 +1,8 @@
-FROM golang:1.22-alpine
-
-RUN apk add --no-cache git
+# Test image — uses the full golang:1.22 (Debian) image, NOT alpine.
+# The race detector requires CGO which requires gcc. The Debian base image
+# includes gcc; alpine does not. The production Dockerfile stays on alpine
+# because the final binary is statically linked and needs no compiler.
+FROM golang:1.22
 
 WORKDIR /app
 
@@ -9,5 +11,7 @@ RUN GONOSUMDB='*' GOPROXY=direct go mod download
 
 COPY . .
 
-# Run tests with race detector and verbose output; exit code mirrors test result
+# -race    enables the race detector (requires CGO + gcc — present in Debian image)
+# -count=1 disables test-result caching so every run is fresh
+# -v       prints each test name as it runs
 CMD ["go", "test", "-race", "-v", "-count=1", "./..."]
