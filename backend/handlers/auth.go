@@ -4,15 +4,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// AuthHandler handles registration and login.
+// Secret must be set before use — it is provided by main.go at startup,
+// which validates that JWT_SECRET is non-empty and at least 32 characters.
 type AuthHandler struct {
-	DB *sql.DB
+	DB     *sql.DB
+	Secret string
 }
 
 type authRequest struct {
@@ -61,7 +64,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := makeToken(id)
+	token, err := h.makeToken(id)
 	if err != nil {
 		jsonError(w, "server error", http.StatusInternalServerError)
 		return
@@ -96,7 +99,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := makeToken(id)
+	token, err := h.makeToken(id)
 	if err != nil {
 		jsonError(w, "server error", http.StatusInternalServerError)
 		return
@@ -106,17 +109,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(authResponse{Token: token, User: userInfo{ID: id, Email: email}})
 }
 
-func makeToken(userID string) (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "change-me-in-production"
-	}
+// makeToken signs a JWT using the secret injected at construction time.
+// There is no fallback — if Secret is empty the server would have already
+// exited in main.go before reaching this point.
+func (h *AuthHandler) makeToken(userID string) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(),
 		"iat":     time.Now().Unix(),
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(h.Secret))
 }
 
 func jsonError(w http.ResponseWriter, msg string, code int) {
