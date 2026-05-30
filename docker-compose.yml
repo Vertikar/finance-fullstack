@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-finance}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-finance}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required — see .env.example}
       POSTGRES_DB: ${DB_NAME:-finance}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -34,9 +34,11 @@ services:
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-finance}
-      DB_PASSWORD: ${DB_PASSWORD:-finance}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required — see .env.example}
       DB_NAME: ${DB_NAME:-finance}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
+      # No default — the API will refuse to start if this is missing or < 32 chars.
+      # Generate with: make secret
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make secret' and add it to .env}
       PORT: 8081
       TZ: ${TZ:-Australia/Sydney}
     ports:
