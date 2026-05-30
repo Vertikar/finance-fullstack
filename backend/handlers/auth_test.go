@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const testSecret = "this-is-a-test-secret-at-least-32-chars!!"
+
 func newAuthHandler(t *testing.T) (*handlers.AuthHandler, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
@@ -19,7 +21,7 @@ func newAuthHandler(t *testing.T) (*handlers.AuthHandler, sqlmock.Sqlmock) {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &handlers.AuthHandler{DB: db}, mock
+	return &handlers.AuthHandler{DB: db, Secret: testSecret}, mock
 }
 
 func doJSON(t *testing.T, h http.HandlerFunc, method, path string, body any) *httptest.ResponseRecorder {
@@ -156,7 +158,6 @@ func TestLogin_MissingFields(t *testing.T) {
 	}
 }
 
-// pqError simulates a pq driver error with a code field.
 type pqError struct {
 	code string
 	msg  string
