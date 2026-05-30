@@ -24,12 +24,24 @@ import (
 var migrationsFS embed.FS
 
 func main() {
+	// ── Validate JWT_SECRET at startup — fail fast rather than run insecurely ──
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is required but not set. " +
+			"Generate one with: openssl rand -hex 32")
+	}
+	if len(jwtSecret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters. " +
+			"Generate a strong one with: openssl rand -hex 32")
+	}
+
 	database := db.Connect()
 	defer database.Close()
 
 	runMigrations(database)
 
-	authH := &handlers.AuthHandler{DB: database}
+	// Pass the validated secret explicitly — no package reads os.Getenv directly.
+	authH    := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
 	entriesH := &handlers.EntriesHandler{DB: database}
 
 	r := chi.NewRouter()
@@ -45,18 +57,15 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Public auth routes
 	r.Post("/api/auth/register", authH.Register)
 	r.Post("/api/auth/login", authH.Login)
 
-	// Protected routes
 	r.Group(func(r chi.Router) {
-		r.Use(mw.Auth)
+		r.Use(mw.NewAuth(jwtSecret))
 		r.Get("/api/entries", entriesH.List)
 		r.Post("/api/entries", entriesH.Create)
 		r.Put("/api/entries/{id}", entriesH.Update)
