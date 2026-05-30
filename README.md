@@ -1,3 +1,5 @@
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 # Finance Manager — Full Stack
 
 A personal finance dashboard for tracking recurring income and expenses across all payment
