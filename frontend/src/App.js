@@ -135,28 +135,32 @@ export default function FinanceManager() {
 
   const T = THEMES[themeKey];
 
-  // ── Persist entries & theme ──────────────────────────────────────────────────
+  // ── Persist entries & theme via localStorage ─────────────────────────────────
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await window.storage.get("fin_entries_v2");
-        if (res?.value) setEntries(JSON.parse(res.value));
-        const tRes = await window.storage.get("fin_theme");
-        if (tRes?.value) setThemeKey(tRes.value);
-      } catch {}
-      setLoaded(true);
-    })();
+    try {
+      const savedEntries = localStorage.getItem("fin_entries_v2");
+      if (savedEntries) setEntries(JSON.parse(savedEntries));
+      const savedTheme = localStorage.getItem("fin_theme");
+      if (savedTheme) setThemeKey(savedTheme);
+    } catch {
+      // localStorage unavailable (e.g. private browsing with strict settings)
+    }
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
-    window.storage.set("fin_entries_v2", JSON.stringify(entries)).catch(() => {});
+    try {
+      localStorage.setItem("fin_entries_v2", JSON.stringify(entries));
+    } catch {}
   }, [entries, loaded]);
 
   function toggleTheme() {
     const next = themeKey === "dark" ? "light" : "dark";
     setThemeKey(next);
-    window.storage.set("fin_theme", next).catch(() => {});
+    try {
+      localStorage.setItem("fin_theme", next);
+    } catch {}
   }
 
   // ── Calculations ─────────────────────────────────────────────────────────────
