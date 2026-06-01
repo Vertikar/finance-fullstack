@@ -31,6 +31,7 @@ func main() {
 
 	authH := &handlers.AuthHandler{DB: database}
 	entriesH := &handlers.EntriesHandler{DB: database}
+	importExportH := &handlers.ImportExportHandler{DB: database}
 
 	r := chi.NewRouter()
 
@@ -54,14 +55,24 @@ func main() {
 	r.Post("/api/auth/register", authH.Register)
 	r.Post("/api/auth/login", authH.Login)
 
-	// Protected routes
+	// Protected routes — all require a valid JWT
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Auth)
+
+		// Entries CRUD
 		r.Get("/api/entries", entriesH.List)
 		r.Post("/api/entries", entriesH.Create)
 		r.Put("/api/entries/{id}", entriesH.Update)
 		r.Delete("/api/entries/{id}", entriesH.Delete)
+
+		// Computed summary
 		r.Get("/api/entries/summary", entriesH.Summary)
+
+		// CSV export & import
+		// Note: chi matches static segments before parameterised ones, so these
+		// resolve correctly ahead of any future /api/entries/{id} GET route.
+		r.Get("/api/entries/export", importExportH.Export)
+		r.Post("/api/entries/import", importExportH.Import)
 	})
 
 	port := getEnv("PORT", "8081")
