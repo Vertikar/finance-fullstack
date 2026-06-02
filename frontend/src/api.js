@@ -50,7 +50,6 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
-      // Try to parse a JSON error body; fall back to a plain message.
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || "Export failed");
     }
@@ -75,7 +74,7 @@ export const api = {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body,
-      // Do NOT set Content-Type — the browser must set it with the correct boundary.
+      // Do NOT set Content-Type — the browser sets it with the correct multipart boundary.
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Import failed");
