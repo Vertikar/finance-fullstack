@@ -3,13 +3,14 @@ package middleware_test
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	mw "github.com/yourname/finance-api/middleware"
 )
+
+const testSecret = "this-is-a-test-secret-at-least-32-chars!!"
 
 // makeToken generates a signed JWT for testing.
 func makeToken(t *testing.T, userID string, secret string, expiry time.Duration) string {
@@ -26,7 +27,6 @@ func makeToken(t *testing.T, userID string, secret string, expiry time.Duration)
 	return tok
 }
 
-// sentinel handler that records that it was reached and echoes the user ID.
 func sentinelHandler(t *testing.T, reachedPtr *bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		*reachedPtr = true
@@ -35,11 +35,10 @@ func sentinelHandler(t *testing.T, reachedPtr *bool) http.HandlerFunc {
 }
 
 func TestAuth_ValidToken_PassesThrough(t *testing.T) {
-	os.Setenv("JWT_SECRET", "test-secret")
-	tok := makeToken(t, "user-abc", "test-secret", time.Hour)
+	tok := makeToken(t, "user-abc", testSecret, time.Hour)
 
 	reached := false
-	handler := mw.Auth(sentinelHandler(t, &reached))
+	handler := mw.NewAuth(testSecret)(sentinelHandler(t, &reached))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -59,7 +58,7 @@ func TestAuth_ValidToken_PassesThrough(t *testing.T) {
 
 func TestAuth_MissingHeader_Returns401(t *testing.T) {
 	reached := false
-	handler := mw.Auth(sentinelHandler(t, &reached))
+	handler := mw.NewAuth(testSecret)(sentinelHandler(t, &reached))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
@@ -75,7 +74,7 @@ func TestAuth_MissingHeader_Returns401(t *testing.T) {
 
 func TestAuth_WrongScheme_Returns401(t *testing.T) {
 	reached := false
-	handler := mw.Auth(sentinelHandler(t, &reached))
+	handler := mw.NewAuth(testSecret)(sentinelHandler(t, &reached))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Basic somebase64stuff")
@@ -88,11 +87,10 @@ func TestAuth_WrongScheme_Returns401(t *testing.T) {
 }
 
 func TestAuth_ExpiredToken_Returns401(t *testing.T) {
-	os.Setenv("JWT_SECRET", "test-secret")
-	tok := makeToken(t, "user-xyz", "test-secret", -time.Hour) // already expired
+	tok := makeToken(t, "user-xyz", testSecret, -time.Hour)
 
 	reached := false
-	handler := mw.Auth(sentinelHandler(t, &reached))
+	handler := mw.NewAuth(testSecret)(sentinelHandler(t, &reached))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -108,11 +106,10 @@ func TestAuth_ExpiredToken_Returns401(t *testing.T) {
 }
 
 func TestAuth_WrongSecret_Returns401(t *testing.T) {
-	os.Setenv("JWT_SECRET", "correct-secret")
-	tok := makeToken(t, "user-xyz", "wrong-secret", time.Hour)
+	tok := makeToken(t, "user-xyz", "wrong-secret-that-is-different-from-test", time.Hour)
 
 	reached := false
-	handler := mw.Auth(sentinelHandler(t, &reached))
+	handler := mw.NewAuth(testSecret)(sentinelHandler(t, &reached))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -126,7 +123,7 @@ func TestAuth_WrongSecret_Returns401(t *testing.T) {
 
 func TestAuth_MalformedToken_Returns401(t *testing.T) {
 	reached := false
-	handler := mw.Auth(sentinelHandler(t, &reached))
+	handler := mw.NewAuth(testSecret)(sentinelHandler(t, &reached))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer not.a.valid.jwt.token")
