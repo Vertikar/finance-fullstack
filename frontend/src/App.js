@@ -140,7 +140,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); 
 
   useEffect(() => { if (user) loadEntries(); }, [user, loadEntries]);
 
