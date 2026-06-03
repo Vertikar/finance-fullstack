@@ -4,7 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Finance Manager</title>
-    <style>body { margin: 0; background: #0b0d14; }</style>
+    <!-- Set body bg before React renders to prevent light/dark flash -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("fin_theme");
+          document.write(
+            '<style>body{margin:0;background:' +
+            (t === "light" ? "#f5f2ec" : "#0b0d14") +
+            '}</style>'
+          );
+        } catch (e) {
+          document.write("<style>body{margin:0;background:#0b0d14}</style>");
+        }
+      }());
+    </script>
   </head>
   <body>
     <div id="root"></div>
