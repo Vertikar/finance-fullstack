@@ -24,6 +24,11 @@ import (
 var migrationsFS embed.FS
 
 func main() {
+	database := db.Connect()
+	defer database.Close()
+
+	runMigrations(database)
+
 	// ── Validate JWT_SECRET at startup — fail fast rather than run insecurely ──
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
@@ -35,14 +40,10 @@ func main() {
 			"Generate a strong one with: openssl rand -hex 32")
 	}
 
-	database := db.Connect()
-	defer database.Close()
-
-	runMigrations(database)
-
-	// Pass the validated secret explicitly — no package reads os.Getenv directly.
-	authH    := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
-	entriesH := &handlers.EntriesHandler{DB: database}
+	// Pass the validated secret explicitly — no handler reads os.Getenv directly.
+	authH         := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
+	entriesH      := &handlers.EntriesHandler{DB: database}
+	importExportH := &handlers.ImportExportHandler{DB: database}
 
 	r := chi.NewRouter()
 
@@ -64,13 +65,24 @@ func main() {
 	r.Post("/api/auth/register", authH.Register)
 	r.Post("/api/auth/login", authH.Login)
 
+	// Protected routes — all require a valid JWT
 	r.Group(func(r chi.Router) {
 		r.Use(mw.NewAuth(jwtSecret))
-		r.Get("/api/entries", entriesH.List)
-		r.Post("/api/entries", entriesH.Create)
-		r.Put("/api/entries/{id}", entriesH.Update)
+
+		// Entries CRUD
+		r.Get("/api/entries",        entriesH.List)
+		r.Post("/api/entries",       entriesH.Create)
+		r.Put("/api/entries/{id}",   entriesH.Update)
 		r.Delete("/api/entries/{id}", entriesH.Delete)
+
+		// Computed summary
 		r.Get("/api/entries/summary", entriesH.Summary)
+
+		// CSV export & import
+		// Note: chi matches static segments before parameterised ones, so these
+		// resolve correctly ahead of any future /api/entries/{id} GET route.
+		r.Get("/api/entries/export",  importExportH.Export)
+		r.Post("/api/entries/import", importExportH.Import)
 	})
 
 	port := getEnv("PORT", "8081")

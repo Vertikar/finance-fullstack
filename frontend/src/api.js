@@ -39,4 +39,45 @@ export const api = {
     request(`/entries/${id}`, { method: "DELETE" }),
 
   getSummary: () => request("/entries/summary"),
+
+  /**
+   * Download all entries as a CSV file.
+   * Returns { blob, filename } so the caller can trigger a browser download.
+   */
+  exportEntries: async () => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/entries/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Export failed");
+    }
+    const blob = await res.blob();
+    // The backend sets Content-Disposition: attachment; filename="finance-export-YYYY-MM-DD.csv"
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename =
+      match?.[1] ?? `finance-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    return { blob, filename };
+  },
+
+  /**
+   * Upload a CSV File object and import its rows.
+   * Returns ImportResult: { imported, skipped, errors[] }
+   */
+  importEntries: async (file) => {
+    const token = getToken();
+    const body = new FormData();
+    body.append("file", file);
+    const res = await fetch(`${BASE}/entries/import`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body,
+      // Do NOT set Content-Type — the browser sets it with the correct multipart boundary.
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Import failed");
+    return data;
+  },
 };
