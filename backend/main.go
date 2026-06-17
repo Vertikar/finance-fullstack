@@ -44,6 +44,7 @@ func main() {
 	authH         := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
 	entriesH      := &handlers.EntriesHandler{DB: database}
 	importExportH := &handlers.ImportExportHandler{DB: database}
+	settingsH     := &handlers.SettingsHandler{DB: database}
 
 	r := chi.NewRouter()
 
@@ -83,6 +84,10 @@ func main() {
 		// resolve correctly ahead of any future /api/entries/{id} GET route.
 		r.Get("/api/entries/export",  importExportH.Export)
 		r.Post("/api/entries/import", importExportH.Import)
+
+		// User settings
+		r.Get("/api/settings/pay-cycle", settingsH.GetPayCycle)
+		r.Put("/api/settings/pay-cycle", settingsH.PutPayCycle)
 	})
 
 	port := getEnv("PORT", "8081")

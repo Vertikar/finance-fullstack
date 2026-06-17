@@ -1,7 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { THEMES } from "./themes";
-
-const STORAGE_KEY = "finance_pay_cycle_settings";
+import { api } from "./api";
 
 const CAT_COLORS = {
   Salary: "#4ade80", Freelance: "#34d399", Investment: "#6ee7b7",
@@ -95,18 +94,40 @@ export default function PayCycle({ entries, T, isMobile }) {
   const theme  = T      ?? THEMES["dark"];
   const mobile = isMobile ?? false;
 
-  const [settings, setSettings] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
-  });
-  const [showConfig, setShowConfig] = useState(!settings);
-  const [formCycle, setFormCycle]   = useState(() => settings?.payCycle    ?? "fortnightly");
-  const [formDate,  setFormDate]    = useState(() => settings?.lastPayDate ?? new Date().toISOString().split("T")[0]);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [settings, setSettings]               = useState(null);
+  const [showConfig, setShowConfig]           = useState(false);
+  const [saveError, setSaveError]             = useState("");
+  const [formCycle, setFormCycle]             = useState("fortnightly");
+  const [formDate,  setFormDate]              = useState(new Date().toISOString().split("T")[0]);
 
-  function saveSettings() {
-    const s = { payCycle: formCycle, lastPayDate: formDate };
-    setSettings(s);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
-    setShowConfig(false);
+  useEffect(() => {
+    api.getPayCycleSettings()
+      .then(data => {
+        if (data?.pay_cycle && data?.last_pay_date) {
+          setSettings({ payCycle: data.pay_cycle, lastPayDate: data.last_pay_date });
+          setFormCycle(data.pay_cycle);
+          setFormDate(data.last_pay_date);
+        } else {
+          setShowConfig(true);
+        }
+      })
+      .catch(() => setShowConfig(true))
+      .finally(() => setLoadingSettings(false));
+  }, []);
+
+  async function saveSettings() {
+    setSaveError("");
+    try {
+      const data = await api.savePayCycleSettings({
+        pay_cycle: formCycle,
+        last_pay_date: formDate,
+      });
+      setSettings({ payCycle: data.pay_cycle, lastPayDate: data.last_pay_date });
+      setShowConfig(false);
+    } catch (e) {
+      setSaveError(e.message);
+    }
   }
 
   const cyclesPerYear = settings?.payCycle === "monthly" ? 12 : 26;
@@ -166,6 +187,15 @@ export default function PayCycle({ entries, T, isMobile }) {
     mono: { fontFamily: "'DM Mono',monospace" },
   };
 
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (loadingSettings) {
+    return (
+      <div style={{ textAlign: "center", padding: 60, ...S.mono, fontSize: 11, color: theme.textMuted, letterSpacing: 2 }}>
+        Loading…
+      </div>
+    );
+  }
+
   // ── Config form ──────────────────────────────────────────────────────────────
   if (showConfig) {
     return (
@@ -200,6 +230,11 @@ export default function PayCycle({ entries, T, isMobile }) {
               <span style={S.label}>Most Recent Pay Date</span>
               <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} />
             </div>
+            {saveError && (
+              <div style={{ ...S.mono, fontSize: 10, color: theme.expense, padding: "8px 12px", background: theme.errorBg, borderRadius: 7 }}>
+                {saveError}
+              </div>
+            )}
             <button onClick={saveSettings} style={{
               background: theme.accent, color: theme.accentText, border: "none",
               borderRadius: 9, padding: "12px", cursor: "pointer", fontWeight: 700,
