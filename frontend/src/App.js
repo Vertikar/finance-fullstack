@@ -343,7 +343,7 @@ export default function App() {
       fontFamily: "'Crimson Pro', Georgia, serif",
       background: T.bg, minHeight: "100vh", color: T.text,
       transition: "background .25s, color .25s",
-      ...(isMobile ? { display: "flex", flexDirection: "column", height: "100dvh" } : {}),
+      ...(isMobile ? { display: "flex", flexDirection: "column" } : {}),
     }}>
       <style>{css}</style>
 
@@ -353,6 +353,7 @@ export default function App() {
         padding: isMobile ? "12px 16px" : "16px 28px",
         display: "flex", justifyContent: "space-between", alignItems: "center",
         flexShrink: 0, transition: "background .25s",
+        ...(isMobile ? { position: "sticky", top: 0, zIndex: 20 } : {}),
       }}>
         <div>
           <div style={{ ...S.mono, fontSize: 9, letterSpacing: 3.5, color: T.accent, textTransform: "uppercase", marginBottom: 4 }}>
@@ -441,7 +442,7 @@ export default function App() {
       {!loading && (
         <div style={{
           ...contentPad,
-          ...(isMobile ? { flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" } : {}),
+          ...(isMobile ? { flex: 1 } : {}),
         }}>
           <div style={{ maxWidth: 960, margin: "0 auto" }}>
 
@@ -726,7 +727,12 @@ export default function App() {
 
       {/* ── MOBILE BOTTOM NAV ──────────────────────────────────────────────── */}
       {isMobile && (
-        <div style={{ flexShrink: 0, background: T.bgHeader, borderTop: `1px solid ${T.border}`, display: "flex", transition: "background .25s" }}>
+        <div style={{
+          flexShrink: 0, background: T.bgHeader, borderTop: `1px solid ${T.border}`, display: "flex",
+          transition: "background .25s",
+          position: "sticky", bottom: 0, zIndex: 20,
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}>
           {TABS.map(({ key, icon, label }) => (
             <button key={key} onClick={() => setTab(key)} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
