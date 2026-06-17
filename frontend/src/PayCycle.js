@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { THEMES } from "./themes";
 import { api } from "./api";
+import { addFreq, prevFreq, getCurrentCycleWindow, getExpensesDueInCycle } from "./utils";
 
 const CAT_COLORS = {
   Salary: "#4ade80", Freelance: "#34d399", Investment: "#6ee7b7",
@@ -18,69 +19,6 @@ const ANNUAL_MULT = {
 
 function toCycle(amount, freq, cyclesPerYear) {
   return amount * (ANNUAL_MULT[freq] ?? 1) / cyclesPerYear;
-}
-
-function addFreq(date, freq) {
-  const d = new Date(date);
-  switch (freq) {
-    case "weekly":      d.setDate(d.getDate() + 7);          break;
-    case "fortnightly": d.setDate(d.getDate() + 14);         break;
-    case "monthly":     d.setMonth(d.getMonth() + 1);        break;
-    case "quarterly":   d.setMonth(d.getMonth() + 3);        break;
-    case "biannual":    d.setMonth(d.getMonth() + 6);        break;
-    case "yearly":      d.setFullYear(d.getFullYear() + 1);  break;
-    default: break;
-  }
-  return d;
-}
-
-function prevFreq(date, freq) {
-  const d = new Date(date);
-  switch (freq) {
-    case "weekly":      d.setDate(d.getDate() - 7);          break;
-    case "fortnightly": d.setDate(d.getDate() - 14);         break;
-    case "monthly":     d.setMonth(d.getMonth() - 1);        break;
-    case "quarterly":   d.setMonth(d.getMonth() - 3);        break;
-    case "biannual":    d.setMonth(d.getMonth() - 6);        break;
-    case "yearly":      d.setFullYear(d.getFullYear() - 1);  break;
-    default: break;
-  }
-  return d;
-}
-
-function getCurrentCycleWindow(lastPayDate, payCycle) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  let start = new Date(lastPayDate + "T00:00:00");
-
-  if (payCycle === "fortnightly") {
-    while (start.getTime() + 14 * 86400000 <= today.getTime()) {
-      start = new Date(start.getTime() + 14 * 86400000);
-    }
-    return { start, end: new Date(start.getTime() + 14 * 86400000) };
-  } else {
-    while (true) {
-      const next = new Date(start);
-      next.setMonth(next.getMonth() + 1);
-      if (next > today) return { start, end: next };
-      start = next;
-    }
-  }
-}
-
-function getExpensesDueInCycle(entries, cycleStart, cycleEnd) {
-  const due = [];
-  for (const e of entries) {
-    if (e.type !== "expense") continue;
-    let d = new Date(e.nextDue + "T00:00:00");
-    while (d >= cycleEnd) d = prevFreq(d, e.frequency);
-    while (d < cycleStart) d = addFreq(d, e.frequency);
-    while (d < cycleEnd) {
-      due.push({ ...e, dueInCycle: new Date(d), dueStr: d.toISOString().split("T")[0] });
-      d = addFreq(d, e.frequency);
-    }
-  }
-  return due.sort((a, b) => a.dueInCycle - b.dueInCycle);
 }
 
 const fmt     = n => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Math.abs(n));
