@@ -77,6 +77,66 @@ export function savingsRate(monthlyIncome, monthlyExpenses) {
 }
 
 /**
+ * Reverse a date by one payment period (inverse of addFreq).
+ */
+export function prevFreq(date, freq) {
+  const d = new Date(date);
+  switch (freq) {
+    case "weekly":      d.setDate(d.getDate() - 7);          break;
+    case "fortnightly": d.setDate(d.getDate() - 14);         break;
+    case "monthly":     d.setMonth(d.getMonth() - 1);        break;
+    case "quarterly":   d.setMonth(d.getMonth() - 3);        break;
+    case "biannual":    d.setMonth(d.getMonth() - 6);        break;
+    case "yearly":      d.setFullYear(d.getFullYear() - 1);  break;
+    default: break;
+  }
+  return d;
+}
+
+/**
+ * Given the user's most recent pay date and pay cycle, return the [start, end)
+ * window for the current pay cycle. Accepts an optional `today` for testing.
+ */
+export function getCurrentCycleWindow(lastPayDate, payCycle, today = new Date()) {
+  const t = new Date(today);
+  t.setHours(0, 0, 0, 0);
+  let start = new Date(lastPayDate + "T00:00:00");
+
+  if (payCycle === "fortnightly") {
+    while (start.getTime() + 14 * 86400000 <= t.getTime()) {
+      start = new Date(start.getTime() + 14 * 86400000);
+    }
+    return { start, end: new Date(start.getTime() + 14 * 86400000) };
+  } else {
+    while (true) {
+      const next = new Date(start);
+      next.setMonth(next.getMonth() + 1);
+      if (next > t) return { start, end: next };
+      start = next;
+    }
+  }
+}
+
+/**
+ * Return all expense entries (and their specific occurrence dates) that fall
+ * within the half-open window [cycleStart, cycleEnd).
+ */
+export function getExpensesDueInCycle(entries, cycleStart, cycleEnd) {
+  const due = [];
+  for (const e of entries) {
+    if (e.type !== "expense") continue;
+    let d = new Date(e.nextDue + "T00:00:00");
+    while (d >= cycleEnd) d = prevFreq(d, e.frequency);
+    while (d < cycleStart) d = addFreq(d, e.frequency);
+    while (d < cycleEnd) {
+      due.push({ ...e, dueInCycle: new Date(d), dueStr: d.toISOString().split("T")[0] });
+      d = addFreq(d, e.frequency);
+    }
+  }
+  return due.sort((a, b) => a.dueInCycle - b.dueInCycle);
+}
+
+/**
  * Build cash-flow events for the next N days from a list of entries.
  */
 export function buildCashFlow(entries, today, days = 90) {

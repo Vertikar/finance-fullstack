@@ -40,6 +40,11 @@ export const api = {
 
   getSummary: () => request("/entries/summary"),
 
+  getPayCycleSettings: () => request("/settings/pay-cycle"),
+
+  savePayCycleSettings: (settings) =>
+    request("/settings/pay-cycle", { method: "PUT", body: JSON.stringify(settings) }),
+
   /**
    * Download all entries as a CSV file.
    * Returns { blob, filename } so the caller can trigger a browser download.

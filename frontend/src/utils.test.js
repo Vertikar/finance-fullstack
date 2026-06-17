@@ -1,4 +1,5 @@
-import { toMonthly, addFreq, fmt, fmtFull, savingsRate, buildCashFlow } from './utils';
+import { toMonthly, addFreq, fmt, fmtFull, savingsRate, buildCashFlow,
+         prevFreq, getCurrentCycleWindow, getExpensesDueInCycle } from './utils';
 
 // ─── toMonthly ───────────────────────────────────────────────────────────────
 
@@ -131,5 +132,176 @@ describe('buildCashFlow', () => {
       expect(new Date(e.dueStr).getTime()).toBeGreaterThanOrEqual(
         new Date('2026-06-01').getTime()
       ));
+  });
+});
+
+// ─── prevFreq ─────────────────────────────────────────────────────────────────
+
+describe('prevFreq', () => {
+  // Use the Date(y,m,d) constructor for local midnight — avoids UTC/local drift
+  const base = new Date(2026, 5, 15); // June 15
+
+  test('weekly goes back 7 days',             () => { const r = prevFreq(base, 'weekly');      expect(r.getDate()).toBe(8);  expect(r.getMonth()).toBe(5); });
+  test('fortnightly goes back 14 days',       () => { const r = prevFreq(base, 'fortnightly'); expect(r.getDate()).toBe(1);  expect(r.getMonth()).toBe(5); });
+  test('monthly goes back 1 month',           () => { const r = prevFreq(base, 'monthly');     expect(r.getDate()).toBe(15); expect(r.getMonth()).toBe(4); });
+  test('quarterly goes back 3 months',        () => { const r = prevFreq(base, 'quarterly');   expect(r.getDate()).toBe(15); expect(r.getMonth()).toBe(2); });
+  test('biannual goes back 6 months',         () => { const r = prevFreq(base, 'biannual');    expect(r.getDate()).toBe(15); expect(r.getMonth()).toBe(11); expect(r.getFullYear()).toBe(2025); });
+  test('yearly goes back 1 year',             () => { const r = prevFreq(base, 'yearly');      expect(r.getDate()).toBe(15); expect(r.getFullYear()).toBe(2025); });
+
+  test('is the inverse of addFreq (weekly)',  () => {
+    const d = new Date(2026, 0, 7);
+    expect(prevFreq(addFreq(d, 'weekly'),  'weekly').getTime()).toBe(d.getTime());
+  });
+  test('is the inverse of addFreq (monthly)', () => {
+    // Use mid-month to avoid end-of-month overflow (e.g. Mar 31 + 1mo = May 1)
+    const d = new Date(2026, 2, 15);
+    expect(prevFreq(addFreq(d, 'monthly'), 'monthly').getTime()).toBe(d.getTime());
+  });
+
+  test('does not mutate the original date',   () => {
+    const d = new Date(2026, 5, 15);
+    prevFreq(d, 'monthly');
+    expect(d.getMonth()).toBe(5);
+  });
+});
+
+// ─── getCurrentCycleWindow ────────────────────────────────────────────────────
+//
+// All dates use new Date(y,m,d) for local midnight, consistent with how the
+// function parses lastPayDate ("T00:00:00" suffix = local midnight).
+
+describe('getCurrentCycleWindow', () => {
+  const jun17 = new Date(2026, 5, 17); // June 17, local midnight
+
+  describe('fortnightly', () => {
+    test('cycle started today — window is [today, today+14)', () => {
+      const { start, end } = getCurrentCycleWindow('2026-06-17', 'fortnightly', jun17);
+      expect(start.getDate()).toBe(17); expect(start.getMonth()).toBe(5);
+      expect(end.getTime() - start.getTime()).toBe(14 * 86400000);
+    });
+
+    test('mid-cycle — start stays at lastPayDate', () => {
+      // lastPayDate Jun 10, today Jun 17: Jun 10+14=Jun 24 > Jun 17, so still in that cycle
+      const { start, end } = getCurrentCycleWindow('2026-06-10', 'fortnightly', jun17);
+      expect(start.getDate()).toBe(10); expect(start.getMonth()).toBe(5);
+      expect(end.getDate()).toBe(24);   expect(end.getMonth()).toBe(5);
+    });
+
+    test('on exact cycle boundary — new cycle begins today', () => {
+      // lastPayDate Jun 3, today Jun 17 (exactly 14 days later)
+      const { start, end } = getCurrentCycleWindow('2026-06-03', 'fortnightly', jun17);
+      expect(start.getDate()).toBe(17); expect(start.getMonth()).toBe(5);
+      expect(end.getDate()).toBe(1);    expect(end.getMonth()).toBe(6); // July 1
+    });
+
+    test('many cycles in the past — correctly advances to current cycle', () => {
+      // lastPayDate May 6, today Jun 17: 42 days = 3 fortnights → current starts Jun 17
+      const { start } = getCurrentCycleWindow('2026-05-06', 'fortnightly', jun17);
+      expect(start.getDate()).toBe(17); expect(start.getMonth()).toBe(5);
+    });
+
+    test('start <= today and end > today', () => {
+      const { start, end } = getCurrentCycleWindow('2026-06-10', 'fortnightly', jun17);
+      expect(start.getTime()).toBeLessThanOrEqual(jun17.getTime());
+      expect(end.getTime()).toBeGreaterThan(jun17.getTime());
+    });
+  });
+
+  describe('monthly', () => {
+    test('mid-cycle — window spans from lastPayDate to next month', () => {
+      // lastPayDate Jun 1, today Jun 17 → cycle [Jun 1, Jul 1)
+      const { start, end } = getCurrentCycleWindow('2026-06-01', 'monthly', jun17);
+      expect(start.getDate()).toBe(1);  expect(start.getMonth()).toBe(5);
+      expect(end.getDate()).toBe(1);    expect(end.getMonth()).toBe(6);
+    });
+
+    test('on exact monthly boundary — new cycle begins today', () => {
+      // lastPayDate May 17, today Jun 17 → cycle [Jun 17, Jul 17)
+      const { start, end } = getCurrentCycleWindow('2026-05-17', 'monthly', jun17);
+      expect(start.getDate()).toBe(17); expect(start.getMonth()).toBe(5);
+      expect(end.getDate()).toBe(17);   expect(end.getMonth()).toBe(6);
+    });
+
+    test('start <= today and end > today', () => {
+      const { start, end } = getCurrentCycleWindow('2026-06-01', 'monthly', jun17);
+      expect(start.getTime()).toBeLessThanOrEqual(jun17.getTime());
+      expect(end.getTime()).toBeGreaterThan(jun17.getTime());
+    });
+  });
+});
+
+// ─── getExpensesDueInCycle ────────────────────────────────────────────────────
+//
+// Window: [Jun 17, Jul 1) local midnight — a standard fortnightly cycle.
+
+describe('getExpensesDueInCycle', () => {
+  const cycleStart = new Date(2026, 5, 17); // June 17, local midnight
+  const cycleEnd   = new Date(2026, 6, 1);  // July 1,  local midnight
+
+  const expense = (id, frequency, nextDue) => ({
+    id, type: 'expense', name: 'Test', amount: 100, frequency, category: 'Other', nextDue,
+  });
+
+  test('empty entries returns []', () =>
+    expect(getExpensesDueInCycle([], cycleStart, cycleEnd)).toHaveLength(0));
+
+  test('income entries are excluded', () => {
+    const income = [{ id: '1', type: 'income', name: 'Salary', amount: 5000,
+      frequency: 'fortnightly', category: 'Salary', nextDue: '2026-06-20' }];
+    expect(getExpensesDueInCycle(income, cycleStart, cycleEnd)).toHaveLength(0);
+  });
+
+  test('expense with nextDue inside window is included once', () => {
+    const result = getExpensesDueInCycle([expense('1', 'monthly', '2026-06-20')], cycleStart, cycleEnd);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('1');
+    expect(result[0].dueInCycle.getDate()).toBe(20);
+  });
+
+  test('weekly expense whose nextDue is before window advances into window', () => {
+    // nextDue = Jun 10 → advance: Jun 10 → 17 → 24 (two occurrences in [Jun 17, Jul 1))
+    const result = getExpensesDueInCycle([expense('1', 'weekly', '2026-06-10')], cycleStart, cycleEnd);
+    expect(result).toHaveLength(2);
+    expect(result[0].dueInCycle.getDate()).toBe(17);
+    expect(result[1].dueInCycle.getDate()).toBe(24);
+  });
+
+  test('weekly expense whose nextDue is after window looks back to find occurrence', () => {
+    // nextDue = Jul 5 → prev = Jun 28, which is in [Jun 17, Jul 1)
+    const result = getExpensesDueInCycle([expense('1', 'weekly', '2026-07-05')], cycleStart, cycleEnd);
+    expect(result).toHaveLength(1);
+    expect(result[0].dueInCycle.getDate()).toBe(28);
+    expect(result[0].dueInCycle.getMonth()).toBe(5); // June
+  });
+
+  test('monthly expense whose only occurrence in period is before window — excluded', () => {
+    // nextDue = Jul 15, prev = Jun 15 < cycleStart, advance = Jul 15 > cycleEnd → none
+    expect(getExpensesDueInCycle([expense('1', 'monthly', '2026-07-15')], cycleStart, cycleEnd))
+      .toHaveLength(0);
+  });
+
+  test('monthly expense with nextDue before window and no occurrence in window', () => {
+    // nextDue = Jun 10, advance = Jul 10 > cycleEnd → none
+    expect(getExpensesDueInCycle([expense('1', 'monthly', '2026-06-10')], cycleStart, cycleEnd))
+      .toHaveLength(0);
+  });
+
+  test('results are sorted by dueInCycle ascending', () => {
+    const entries = [
+      expense('a', 'weekly',  '2026-06-19'), // → Jun 19, Jun 26
+      expense('b', 'monthly', '2026-06-18'), // → Jun 18
+    ];
+    const result = getExpensesDueInCycle(entries, cycleStart, cycleEnd);
+    for (let i = 1; i < result.length; i++)
+      expect(result[i].dueInCycle.getTime()).toBeGreaterThanOrEqual(result[i-1].dueInCycle.getTime());
+  });
+
+  test('multiple entries — each contributes correctly', () => {
+    const entries = [
+      expense('rent',    'monthly',     '2026-06-20'), // 1 occurrence
+      expense('phone',   'fortnightly', '2026-06-17'), // 1 occurrence (Jun 17)
+      expense('parking', 'weekly',      '2026-06-17'), // 2 occurrences (Jun 17, Jun 24)
+    ];
+    expect(getExpensesDueInCycle(entries, cycleStart, cycleEnd)).toHaveLength(4);
   });
 });
