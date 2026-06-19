@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	mw "github.com/yourname/finance-api/middleware"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type SettingsHandler struct {
@@ -39,6 +40,52 @@ func (h *SettingsHandler) GetPayCycle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *SettingsHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID := mw.GetUserID(r)
+
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.CurrentPassword == "" || body.NewPassword == "" {
+		jsonError(w, "current_password and new_password are required", http.StatusBadRequest)
+		return
+	}
+	if len(body.NewPassword) < 8 {
+		jsonError(w, "new password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+
+	var hash string
+	if err := h.DB.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
+		jsonError(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.CurrentPassword)); err != nil {
+		jsonError(w, "current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		jsonError(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := h.DB.Exec(`UPDATE users SET password_hash = $1 WHERE id = $2`, string(newHash), userID); err != nil {
+		jsonError(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "password updated"})
 }
 
 func (h *SettingsHandler) PutPayCycle(w http.ResponseWriter, r *http.Request) {
