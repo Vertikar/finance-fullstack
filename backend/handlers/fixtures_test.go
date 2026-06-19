@@ -1,0 +1,26 @@
+package handlers_test
+
+// seedCSV is the canonical 19-entry test dataset in DD/MM/YYYY date format,
+// matching what a user would export from a spreadsheet application.
+// Used by TestImportSeedData to verify all real-world entries pass validation.
+const seedCSV = `name,amount,type,frequency,category,next_due
+Disney Plus,20.99,expense,monthly,Entertainment,26/06/2026
+Netflix,20.99,expense,monthly,Entertainment,24/06/2026
+Health Insurance,150,expense,monthly,Health,18/06/2026
+Home Insurance,355,expense,monthly,Housing,23/06/2026
+Home loan,3720,expense,monthly,Housing,27/05/2026
+Water Bill,250,expense,quarterly,Housing,3/06/2026
+Council Rates,600,expense,quarterly,Housing,27/08/2026
+Swimming,190,expense,monthly,Other,1/07/2026
+Childcare,220,expense,weekly,Other,28/05/2026
+Google Subscription,45,expense,yearly,Subscriptions,13/05/2027
+Car Insurance,180,expense,monthly,Transport,7/06/2026
+Car Service,600,expense,biannual,Transport,24/06/2026
+Car Registration,440,expense,biannual,Transport,26/11/2026
+Password Manger Subscription,95,expense,yearly,Utilities,20/06/2026
+Internet,90,expense,monthly,Utilities,18/06/2026
+Gas,55,expense,monthly,Utilities,15/07/2026
+Power Bill ,175,expense,monthly,Utilities,30/06/2026
+Mobile Phone,85,expense,monthly,Utilities,21/06/2026
+Salary,15000,income,monthly,Salary,14/06/2026
+`

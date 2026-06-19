@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps shell-api shell-db psql reset-db secret \
+.PHONY: up down build logs ps shell-api shell-db psql reset-db secret seed \
         test test-backend test-backend-coverage test-frontend test-frontend-ci \
         test-docker test-docker-backend test-docker-frontend
 
@@ -60,6 +60,10 @@ backup:
 ## Restore a backup: make restore FILE=backup_20260101_120000.sql
 restore:
 	docker compose exec -T db psql -U finance -d finance < $(FILE)
+
+## Seed the database with test data (test@example.com / testpassword)
+seed:
+	docker compose exec -T db psql -U finance -d finance < backend/seed.sql
 
 # ── Tests (local — requires Go and Node installed) ──────────────────────────
 
