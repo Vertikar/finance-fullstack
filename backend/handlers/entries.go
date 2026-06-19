@@ -181,6 +181,26 @@ func (h *EntriesHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fold in variable-expense budgets — flat monthly allowances per category.
+	budgetRows, err := h.DB.Query(
+		`SELECT category, amount FROM budgets WHERE user_id = $1`, userID,
+	)
+	if err != nil {
+		jsonError(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	defer budgetRows.Close()
+
+	for budgetRows.Next() {
+		var category string
+		var amount float64
+		if err := budgetRows.Scan(&category, &amount); err != nil {
+			continue
+		}
+		expenses += amount
+		byCategory[category] += amount
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Summary{
 		MonthlyIncome:   income,

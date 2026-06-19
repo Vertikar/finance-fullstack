@@ -123,6 +123,49 @@ describe('api.deleteEntry', () => {
   });
 });
 
+describe('api.getBudgets', () => {
+  test('calls the /api/budgets endpoint', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse([]));
+    await api.getBudgets();
+    expect(mockFetch).toHaveBeenCalledWith('/api/budgets', expect.any(Object));
+  });
+});
+
+describe('api.createBudget', () => {
+  test('sends POST with budget body', async () => {
+    const budget = { category: 'Food & Groceries', amount: 600 };
+    mockFetch.mockReturnValueOnce(jsonResponse({ ...budget, id: 'b1' }, 201));
+    const result = await api.createBudget(budget);
+    expect(mockFetch).toHaveBeenCalledWith('/api/budgets', expect.objectContaining({
+      method: 'POST',
+      body:   JSON.stringify(budget),
+    }));
+    expect(result.id).toBe('b1');
+  });
+});
+
+describe('api.updateBudget', () => {
+  test('sends PUT to /api/budgets/:id', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse({ id: 'b1', amount: 750 }));
+    await api.updateBudget('b1', { amount: 750 });
+    expect(mockFetch).toHaveBeenCalledWith('/api/budgets/b1', expect.objectContaining({
+      method: 'PUT',
+      body:   JSON.stringify({ amount: 750 }),
+    }));
+  });
+});
+
+describe('api.deleteBudget', () => {
+  test('sends DELETE to /api/budgets/:id and returns null', async () => {
+    mockFetch.mockReturnValueOnce(
+      Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(null) })
+    );
+    const result = await api.deleteBudget('b1');
+    expect(mockFetch).toHaveBeenCalledWith('/api/budgets/b1', expect.objectContaining({ method: 'DELETE' }));
+    expect(result).toBeNull();
+  });
+});
+
 describe('api.changePassword', () => {
   test('sends PUT to /api/settings/password with passwords', async () => {
     mockFetch.mockReturnValueOnce(jsonResponse({ message: 'password updated' }));
