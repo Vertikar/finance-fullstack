@@ -45,6 +45,12 @@ export const api = {
   savePayCycleSettings: (settings) =>
     request("/settings/pay-cycle", { method: "PUT", body: JSON.stringify(settings) }),
 
+  changePassword: (currentPassword, newPassword) =>
+    request("/settings/password", {
+      method: "PUT",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+
   /**
    * Download all entries as a CSV file.
    * Returns { blob, filename } so the caller can trigger a browser download.

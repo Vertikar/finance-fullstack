@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/yourname/finance-api/handlers"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func newSettingsHandler(t *testing.T) (*handlers.SettingsHandler, sqlmock.Sqlmock) {
@@ -19,6 +20,83 @@ func newSettingsHandler(t *testing.T) (*handlers.SettingsHandler, sqlmock.Sqlmoc
 	}
 	t.Cleanup(func() { db.Close() })
 	return &handlers.SettingsHandler{DB: db}, mock
+}
+
+// ─── ChangePassword ───────────────────────────────────────────────────────────
+
+func TestChangePassword_MissingFields(t *testing.T) {
+	h, _ := newSettingsHandler(t)
+	body, _ := json.Marshal(map[string]string{"current_password": "oldpass"})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader(body)), "user-1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for missing new_password, got %d", rr.Code)
+	}
+}
+
+func TestChangePassword_TooShort(t *testing.T) {
+	h, _ := newSettingsHandler(t)
+	body, _ := json.Marshal(map[string]string{
+		"current_password": "oldpassword",
+		"new_password":     "short",
+	})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader(body)), "user-1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for short new_password, got %d", rr.Code)
+	}
+}
+
+func TestChangePassword_WrongCurrentPassword(t *testing.T) {
+	h, mock := newSettingsHandler(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.MinCost)
+	mock.ExpectQuery(`SELECT password_hash FROM users`).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(hash)))
+
+	body, _ := json.Marshal(map[string]string{
+		"current_password": "wrongpassword",
+		"new_password":     "newpassword123",
+	})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader(body)), "user-1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401 for wrong current password, got %d", rr.Code)
+	}
+}
+
+func TestChangePassword_Success(t *testing.T) {
+	h, mock := newSettingsHandler(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("oldpassword"), bcrypt.MinCost)
+	mock.ExpectQuery(`SELECT password_hash FROM users`).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(hash)))
+	mock.ExpectExec(`UPDATE users SET password_hash`).
+		WithArgs(sqlmock.AnyArg(), "user-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	body, _ := json.Marshal(map[string]string{
+		"current_password": "oldpassword",
+		"new_password":     "newpassword123",
+	})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader(body)), "user-1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var result map[string]string
+	json.NewDecoder(rr.Body).Decode(&result)
+	if result["message"] != "password updated" {
+		t.Errorf("expected 'password updated' message, got %v", result["message"])
+	}
 }
 
 // ─── GetPayCycle ──────────────────────────────────────────────────────────────

@@ -122,3 +122,20 @@ describe('api.deleteEntry', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('api.changePassword', () => {
+  test('sends PUT to /api/settings/password with passwords', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse({ message: 'password updated' }));
+    const result = await api.changePassword('oldpass', 'newpass123');
+    expect(mockFetch).toHaveBeenCalledWith('/api/settings/password', expect.objectContaining({
+      method: 'PUT',
+      body:   JSON.stringify({ current_password: 'oldpass', new_password: 'newpass123' }),
+    }));
+    expect(result.message).toBe('password updated');
+  });
+
+  test('throws with server error message on failure', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse({ error: 'current password is incorrect' }, 401));
+    await expect(api.changePassword('wrongpass', 'newpass123')).rejects.toThrow('current password is incorrect');
+  });
+});

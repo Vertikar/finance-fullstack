@@ -5,6 +5,7 @@ import AuthScreen from "./AuthScreen";
 import { THEMES, SunIcon, MoonIcon } from "./themes";
 import ImportModal from "./ImportModal";
 import PayCycle from "./PayCycle";
+import UserSettings from "./UserSettings";
 
 // ── Frequency metadata ────────────────────────────────────────────────────────
 const FREQ_META = {
@@ -119,6 +120,7 @@ const TABS = [
   { key: "payments",  icon: "☰", label: "Payments"  },
   { key: "cashflow",  icon: "◈", label: "Cash Flow" },
   { key: "paycycle",  icon: "◑", label: "Pay Cycle" },
+  { key: "settings",  icon: "⚙", label: "Settings"  },
 ];
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -726,6 +728,10 @@ export default function App() {
             {/* ── PAY CYCLE ─────────────────────────────────────────────── */}
             {tab === "paycycle" && (
               <PayCycle entries={entries} T={T} isMobile={isMobile} />
+            )}
+
+            {tab === "settings" && (
+              <UserSettings T={T} isMobile={isMobile} />
             )}
 
           </div>
