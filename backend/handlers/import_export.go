@@ -26,7 +26,7 @@ var allowedTypes = map[string]bool{"income": true, "expense": true}
 
 var allowedFrequencies = map[string]bool{
 	"weekly": true, "fortnightly": true, "monthly": true,
-	"quarterly": true, "yearly": true,
+	"quarterly": true, "biannual": true, "yearly": true,
 }
 
 // ── Export ────────────────────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ func validateRow(rec []string, idx map[string]int) (
 	frequency = get("frequency")
 	if !allowedFrequencies[frequency] {
 		return "", 0, "", "", "", "",
-			fmt.Sprintf("frequency %q must be one of: weekly, fortnightly, monthly, quarterly, yearly", frequency)
+			fmt.Sprintf("frequency %q must be one of: weekly, fortnightly, monthly, quarterly, biannual, yearly", frequency)
 	}
 
 	category = get("category")
@@ -288,8 +288,15 @@ func validateRow(rec []string, idx map[string]int) (
 	}
 
 	nextDue = get("next_due")
-	if _, dateErr := time.Parse("2006-01-02", nextDue); dateErr != nil {
-		return "", 0, "", "", "", "", fmt.Sprintf("next_due %q must be in YYYY-MM-DD format", nextDue)
+	if t, dateErr := time.Parse("2006-01-02", nextDue); dateErr != nil {
+		// Also accept DD/MM/YYYY (common when CSV is opened and re-saved by spreadsheet apps)
+		if t2, dateErr2 := time.Parse("02/01/2006", nextDue); dateErr2 != nil {
+			return "", 0, "", "", "", "", fmt.Sprintf("next_due %q must be in YYYY-MM-DD format", nextDue)
+		} else {
+			nextDue = t2.Format("2006-01-02")
+		}
+	} else {
+		nextDue = t.Format("2006-01-02")
 	}
 
 	return name, amount, entryType, frequency, category, nextDue, ""
