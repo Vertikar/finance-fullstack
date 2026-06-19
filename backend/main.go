@@ -88,6 +88,7 @@ func main() {
 		// User settings
 		r.Get("/api/settings/pay-cycle", settingsH.GetPayCycle)
 		r.Put("/api/settings/pay-cycle", settingsH.PutPayCycle)
+		r.Put("/api/settings/password",  settingsH.ChangePassword)
 	})
 
 	port := getEnv("PORT", "8081")
