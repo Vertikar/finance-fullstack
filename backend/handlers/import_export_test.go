@@ -302,6 +302,33 @@ func TestImport_EmptyFileSetsZeroCounts(t *testing.T) {
 }
 
 // Ensure the round-trip: export YYYY-MM-DD, re-import YYYY-MM-DD works end-to-end.
+// TestImportSeedData verifies that every row in the canonical 19-entry fixture
+// passes validation and results in a DB insert (no rows skipped).
+func TestImportSeedData(t *testing.T) {
+	h, mock := newImportExportHandler(t)
+
+	mock.ExpectBegin()
+	mock.ExpectPrepare(`INSERT INTO entries`)
+	for i := 0; i < 19; i++ {
+		mock.ExpectExec(`INSERT INTO entries`).
+			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	mock.ExpectCommit()
+
+	rr := httptest.NewRecorder()
+	h.Import(rr, csvRequest(t, seedCSV))
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var result handlers.ImportResult
+	json.NewDecoder(rr.Body).Decode(&result)
+	if result.Imported != 19 || result.Skipped != 0 {
+		t.Errorf("want imported=19 skipped=0, got imported=%d skipped=%d errors=%v", result.Imported, result.Skipped, result.Errors)
+	}
+}
+
 func TestExportImportRoundTrip_DateFormat(t *testing.T) {
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	exportHandler, exportMock := newImportExportHandler(t)

@@ -289,9 +289,13 @@ func validateRow(rec []string, idx map[string]int) (
 
 	nextDue = get("next_due")
 	if t, dateErr := time.Parse("2006-01-02", nextDue); dateErr != nil {
-		// Also accept DD/MM/YYYY (common when CSV is opened and re-saved by spreadsheet apps)
+		// Also accept DD/MM/YYYY and D/MM/YYYY (common when CSV is opened and re-saved by spreadsheet apps)
 		if t2, dateErr2 := time.Parse("02/01/2006", nextDue); dateErr2 != nil {
-			return "", 0, "", "", "", "", fmt.Sprintf("next_due %q must be in YYYY-MM-DD format", nextDue)
+			if t3, dateErr3 := time.Parse("2/01/2006", nextDue); dateErr3 != nil {
+				return "", 0, "", "", "", "", fmt.Sprintf("next_due %q must be in YYYY-MM-DD format", nextDue)
+			} else {
+				nextDue = t3.Format("2006-01-02")
+			}
 		} else {
 			nextDue = t2.Format("2006-01-02")
 		}
