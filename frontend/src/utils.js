@@ -40,18 +40,63 @@ export function toMonthly(amount, freq) {
   return amount * (multipliers[freq] ?? 1);
 }
 
+/** Last calendar day (28-31) of the month containing (year, monthIndex). */
+function lastDayOfMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+/** Parse a "YYYY-MM-DD" date string as LOCAL midnight (avoids UTC day-shift). */
+export function parseLocal(str) {
+  return new Date(str + "T00:00:00");
+}
+
+/** Format a Date as a local "YYYY-MM-DD" string (avoids toISOString UTC shift). */
+export function toDateStr(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Number of months to advance for each month-based frequency. Day-based
+ * frequencies (weekly/fortnightly) are absent and handled separately.
+ */
+const MONTH_STEP = { monthly: 1, quarterly: 3, biannual: 6, yearly: 12 };
+
+/**
+ * Shift `date` by `months` calendar months, landing on `anchorDay` clamped to
+ * the target month's length. Building the Date via the constructor avoids the
+ * transient "Feb 31" → Mar 3 normalization that plain setMonth() suffers from,
+ * and using the original anchorDay prevents end-of-month drift across short
+ * months (Jan 31 → Feb 28 → Mar 31, not → Mar 28).
+ */
+function shiftMonths(date, months, anchorDay) {
+  const targetYear  = date.getFullYear();
+  const targetMonth = date.getMonth() + months;
+  // Normalize month/year so lastDayOfMonth gets the real target month.
+  const ref   = new Date(targetYear, targetMonth, 1);
+  const day   = Math.min(anchorDay, lastDayOfMonth(ref.getFullYear(), ref.getMonth()));
+  return new Date(ref.getFullYear(), ref.getMonth(), day);
+}
+
 /**
  * Advance a date by one payment period.
+ *
+ * `anchorDay` is the original due day-of-month; pass it when stepping
+ * iteratively so end-of-month dates don't drift (see shiftMonths). When
+ * omitted it defaults to the given date's day, preserving legacy behavior.
  */
-export function addFreq(date, freq) {
+export function addFreq(date, freq, anchorDay) {
   const d = new Date(date);
+  const anchor = anchorDay ?? d.getDate();
   switch (freq) {
-    case "weekly":      d.setDate(d.getDate() + 7);         break;
-    case "fortnightly": d.setDate(d.getDate() + 14);        break;
-    case "monthly":     d.setMonth(d.getMonth() + 1);       break;
-    case "quarterly":   d.setMonth(d.getMonth() + 3);       break;
-    case "biannual":    d.setMonth(d.getMonth() + 6);       break;
-    case "yearly":      d.setFullYear(d.getFullYear() + 1); break;
+    case "weekly":      d.setDate(d.getDate() + 7);  break;
+    case "fortnightly": d.setDate(d.getDate() + 14); break;
+    case "monthly":
+    case "quarterly":
+    case "biannual":
+    case "yearly":      return shiftMonths(d, MONTH_STEP[freq], anchor);
     default: break;
   }
   return d;
@@ -77,17 +122,20 @@ export function savingsRate(monthlyIncome, monthlyExpenses) {
 }
 
 /**
- * Reverse a date by one payment period (inverse of addFreq).
+ * Reverse a date by one payment period (inverse of addFreq). Accepts the same
+ * optional `anchorDay` so backward stepping clamps end-of-month dates the same
+ * way forward stepping does.
  */
-export function prevFreq(date, freq) {
+export function prevFreq(date, freq, anchorDay) {
   const d = new Date(date);
+  const anchor = anchorDay ?? d.getDate();
   switch (freq) {
-    case "weekly":      d.setDate(d.getDate() - 7);          break;
-    case "fortnightly": d.setDate(d.getDate() - 14);         break;
-    case "monthly":     d.setMonth(d.getMonth() - 1);        break;
-    case "quarterly":   d.setMonth(d.getMonth() - 3);        break;
-    case "biannual":    d.setMonth(d.getMonth() - 6);        break;
-    case "yearly":      d.setFullYear(d.getFullYear() - 1);  break;
+    case "weekly":      d.setDate(d.getDate() - 7);  break;
+    case "fortnightly": d.setDate(d.getDate() - 14); break;
+    case "monthly":
+    case "quarterly":
+    case "biannual":
+    case "yearly":      return shiftMonths(d, -MONTH_STEP[freq], anchor);
     default: break;
   }
   return d;
@@ -108,6 +156,9 @@ export function getCurrentCycleWindow(lastPayDate, payCycle, today = new Date())
     }
     return { start, end: new Date(start.getTime() + 14 * 86400000) };
   } else {
+    // NOTE: this monthly branch uses plain setMonth() and shares the
+    // end-of-month overflow bug fixed in addFreq/shiftMonths — a pay date on
+    // the 31st can produce a malformed cycle window. Left as-is (out of scope).
     while (true) {
       const next = new Date(start);
       next.setMonth(next.getMonth() + 1);
@@ -118,6 +169,25 @@ export function getCurrentCycleWindow(lastPayDate, payCycle, today = new Date())
 }
 
 /**
+ * Yield every occurrence of `entry` falling within the half-open window
+ * [start, end). Anchored on the entry's original nextDue day-of-month so
+ * end-of-month dates don't drift across short months. Returns occurrence Dates.
+ */
+function occurrencesInWindow(entry, start, end) {
+  const occ = [];
+  const first = parseLocal(entry.nextDue);
+  const anchorDay = first.getDate();
+  let d = first;
+  while (d >= end)   d = prevFreq(d, entry.frequency, anchorDay);
+  while (d < start)  d = addFreq(d, entry.frequency, anchorDay);
+  while (d < end) {
+    occ.push(new Date(d));
+    d = addFreq(d, entry.frequency, anchorDay);
+  }
+  return occ;
+}
+
+/**
  * Return all expense entries (and their specific occurrence dates) that fall
  * within the half-open window [cycleStart, cycleEnd).
  */
@@ -125,12 +195,8 @@ export function getExpensesDueInCycle(entries, cycleStart, cycleEnd) {
   const due = [];
   for (const e of entries) {
     if (e.type !== "expense") continue;
-    let d = new Date(e.nextDue + "T00:00:00");
-    while (d >= cycleEnd) d = prevFreq(d, e.frequency);
-    while (d < cycleStart) d = addFreq(d, e.frequency);
-    while (d < cycleEnd) {
-      due.push({ ...e, dueInCycle: new Date(d), dueStr: d.toISOString().split("T")[0] });
-      d = addFreq(d, e.frequency);
+    for (const d of occurrencesInWindow(e, cycleStart, cycleEnd)) {
+      due.push({ ...e, dueInCycle: d, dueStr: toDateStr(d) });
     }
   }
   return due.sort((a, b) => a.dueInCycle - b.dueInCycle);
@@ -138,6 +204,7 @@ export function getExpensesDueInCycle(entries, cycleStart, cycleEnd) {
 
 /**
  * Build cash-flow events for the next N days from a list of entries.
+ * Half-open window: [today, today + days).
  */
 export function buildCashFlow(entries, today, days = 90) {
   const end = new Date(today);
@@ -145,16 +212,32 @@ export function buildCashFlow(entries, today, days = 90) {
 
   const events = [];
   for (const entry of entries) {
-    let d = new Date(entry.nextDue);
-    while (d < today) d = addFreq(d, entry.frequency);
-    while (d < end) {
+    for (const d of occurrencesInWindow(entry, today, end)) {
       events.push({
         ...entry,
-        dueDate: new Date(d),
-        dueStr:  d.toISOString().split("T")[0],
+        dueDate: d,
+        dueStr:  toDateStr(d),
       });
-      d = addFreq(d, entry.frequency);
     }
   }
   return events.sort((a, b) => a.dueDate - b.dueDate);
+}
+
+/**
+ * Sum the ACTUAL income and expense amounts that fall within the calendar month
+ * containing `today`. Unlike toMonthly (which uses averaged multipliers), this
+ * counts real occurrences — so a month with 3 fortnightly or 5 weekly payments
+ * reports the true higher total. Returns { income, expenses, net }.
+ */
+export function sumActualForMonth(entries, today = new Date()) {
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const monthEnd   = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+
+  let income = 0, expenses = 0;
+  for (const e of entries) {
+    const total = occurrencesInWindow(e, monthStart, monthEnd).length * e.amount;
+    if (e.type === "income") income += total;
+    else                     expenses += total;
+  }
+  return { income, expenses, net: income - expenses };
 }
