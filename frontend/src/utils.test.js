@@ -1,5 +1,16 @@
 import { toMonthly, addFreq, fmt, fmtFull, savingsRate, buildCashFlow,
-         prevFreq, getCurrentCycleWindow, getExpensesDueInCycle } from './utils';
+         prevFreq, getCurrentCycleWindow, getExpensesDueInCycle,
+         sumActualForMonth, totalMonthlyBudgets } from './utils';
+
+// ─── totalMonthlyBudgets ───────────────────────────────────────────────────────
+
+describe('totalMonthlyBudgets', () => {
+  test('sums budget amounts',          () => expect(totalMonthlyBudgets([{ amount: 600 }, { amount: 250 }])).toBe(850));
+  test('empty array returns 0',        () => expect(totalMonthlyBudgets([])).toBe(0));
+  test('undefined input returns 0',    () => expect(totalMonthlyBudgets(undefined)).toBe(0));
+  test('coerces string amounts',       () => expect(totalMonthlyBudgets([{ amount: '600' }, { amount: '50.5' }])).toBeCloseTo(650.5));
+  test('ignores non-numeric amounts',  () => expect(totalMonthlyBudgets([{ amount: 'abc' }, { amount: 100 }])).toBe(100));
+});
 
 // ─── toMonthly ───────────────────────────────────────────────────────────────
 
@@ -30,6 +41,56 @@ describe('addFreq', () => {
     const original = new Date('2026-06-15');
     addFreq(original, 'biannual');
     expect(original.toISOString().split('T')[0]).toBe('2026-06-15');
+  });
+
+  // ── End-of-month anchoring (regression for the setMonth overflow bug) ──
+  // A bill due on the 31st must NOT skip short months or drift; each occurrence
+  // is the original day clamped to the target month's length.
+  describe('end-of-month does not overflow or drift', () => {
+    const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    test('Jan 31 monthly steps land on month-ends, anchored to the 31st', () => {
+      const anchor = 31;
+      let d = new Date(2026, 0, 31); // Jan 31 2026
+      const seq = [ymd(d)];
+      for (let i = 0; i < 4; i++) { d = addFreq(d, 'monthly', anchor); seq.push(ymd(d)); }
+      expect(seq).toEqual([
+        '2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31',
+      ]);
+    });
+
+    test('without an explicit anchor a single step still clamps (no Mar 3)', () => {
+      const r = addFreq(new Date(2026, 0, 31), 'monthly'); // Jan 31 → Feb (clamped)
+      expect(r.getMonth()).toBe(1);   // February, not March
+      expect(r.getDate()).toBe(28);
+    });
+
+    test('Jan 31 monthly into a leap February clamps to the 29th', () => {
+      const r = addFreq(new Date(2024, 0, 31), 'monthly', 31); // 2024 is a leap year
+      expect(ymd(r)).toBe('2024-02-29');
+    });
+
+    test('quarterly Nov 30 → Feb 28 (no overflow)', () => {
+      const r = addFreq(new Date(2025, 10, 30), 'quarterly', 30); // Nov 30 2025 + 3mo
+      expect(ymd(r)).toBe('2026-02-28');
+    });
+
+    test('biannual Aug 31 → Feb 28 (no overflow)', () => {
+      const r = addFreq(new Date(2025, 7, 31), 'biannual', 31); // Aug 31 2025 + 6mo
+      expect(ymd(r)).toBe('2026-02-28');
+    });
+
+    test('yearly Feb 29 clamps to Feb 28 in non-leap years and restores in the next leap year', () => {
+      const anchor = 29;
+      let d = new Date(2024, 1, 29); // Feb 29 2024
+      const seq = [ymd(d)];
+      for (let i = 0; i < 4; i++) { d = addFreq(d, 'yearly', anchor); seq.push(ymd(d)); }
+      expect(seq).toEqual([
+        '2024-02-29', '2025-02-28', '2026-02-28', '2027-02-28', '2028-02-29',
+      ]);
+      // Never drifts into March
+      seq.forEach(s => expect(s.slice(5, 7)).toBe('02'));
+    });
   });
 });
 
@@ -62,12 +123,11 @@ describe('savingsRate', () => {
 //   - Events on `today` ARE included  (d >= today after the advance loop)
 //   - Events on `today+days` are NOT  (loop condition is d < end, strictly less)
 //
-// Important: use UTC midnight (new Date('YYYY-MM-DD T00:00:00.000Z')) as the
-// `today` anchor so it matches how date strings in nextDue are parsed by
-// new Date('YYYY-MM-DD') — both resolve to UTC midnight, avoiding timezone drift.
+// Important: nextDue strings are now parsed as LOCAL midnight (parseLocal), so
+// anchor `today` with the local-midnight constructor new Date(y, m, d) to match.
 
 describe('buildCashFlow', () => {
-  const today = new Date('2026-06-01T00:00:00.000Z'); // UTC midnight — stable across all timezones
+  const today = new Date(2026, 5, 1); // June 1 2026, local midnight
 
   const entries = [
     { id: '1', name: 'Rent',   amount: 1800, type: 'expense', frequency: 'monthly',
@@ -132,6 +192,30 @@ describe('buildCashFlow', () => {
       expect(new Date(e.dueStr).getTime()).toBeGreaterThanOrEqual(
         new Date('2026-06-01').getTime()
       ));
+  });
+
+  // The "heavy month" case: July 2026 spans 5 weeks, so a fortnightly bill due
+  // Jul 3 falls 3 times (Jul 3, 17, 31) — not the usual 2.
+  test('fortnightly bill due Jul 3 yields 3 occurrences across July', () => {
+    const julyStart = new Date(2026, 6, 1); // Jul 1 2026
+    const fortnightly = [{ id: 'f', name: 'Gym', amount: 50, type: 'expense',
+      frequency: 'fortnightly', category: 'Health', nextDue: '2026-07-03' }];
+    const inJuly = buildCashFlow(fortnightly, julyStart, 31) // [Jul 1, Aug 1)
+      .filter(e => e.dueDate.getMonth() === 6);
+    expect(inJuly).toHaveLength(3);
+    expect(inJuly.map(e => e.dueStr)).toEqual(['2026-07-03', '2026-07-17', '2026-07-31']);
+  });
+
+  // The anchor must thread through the generator, not just the raw helper:
+  // a Jan-31 monthly bill hits month-ends without skipping February.
+  test('monthly bill due Jan 31 lands on month-ends through the generator', () => {
+    const janStart = new Date(2026, 0, 1);
+    const entry = [{ id: 'm', name: 'Rent', amount: 100, type: 'expense',
+      frequency: 'monthly', category: 'Housing', nextDue: '2026-01-31' }];
+    const events = buildCashFlow(entry, janStart, 120); // [Jan 1, ~May 1)
+    expect(events.map(e => e.dueStr)).toEqual([
+      '2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30',
+    ]);
   });
 });
 
@@ -303,5 +387,58 @@ describe('getExpensesDueInCycle', () => {
       expense('parking', 'weekly',      '2026-06-17'), // 2 occurrences (Jun 17, Jun 24)
     ];
     expect(getExpensesDueInCycle(entries, cycleStart, cycleEnd)).toHaveLength(4);
+  });
+});
+
+// ─── sumActualForMonth ────────────────────────────────────────────────────────
+//
+// Calendar-accurate totals for the month containing `today` — counts REAL
+// occurrences, unlike toMonthly's averaged multipliers.
+
+describe('sumActualForMonth', () => {
+  const entry = (type, frequency, nextDue, amount = 100) => ({
+    id: nextDue, name: 'Test', type, frequency, category: 'Other', nextDue, amount,
+  });
+
+  test('empty entries → all zero', () => {
+    expect(sumActualForMonth([], new Date(2026, 6, 1))).toEqual({ income: 0, expenses: 0, net: 0 });
+  });
+
+  test('3-fortnightly month counts the real (higher) total, exceeding the average', () => {
+    // July 2026: fortnightly due Jul 3 falls Jul 3/17/31 → 3 × 100 = 300
+    const july = new Date(2026, 6, 15);
+    const { expenses } = sumActualForMonth([entry('expense', 'fortnightly', '2026-07-03')], july);
+    expect(expenses).toBe(300);
+    expect(expenses).toBeGreaterThan(toMonthly(100, 'fortnightly')); // > 216.67 average
+  });
+
+  test('2-fortnightly month counts exactly 2', () => {
+    // June 2026: fortnightly due Jun 5 → Jun 5/19 only → 2 × 100 = 200
+    const june = new Date(2026, 5, 15);
+    const { expenses } = sumActualForMonth([entry('expense', 'fortnightly', '2026-06-05')], june);
+    expect(expenses).toBe(200);
+  });
+
+  test('5-weekly month counts 5', () => {
+    // May 2026 has 5 Fridays (1, 8, 15, 22, 29); weekly due May 1 → 5 × 100 = 500
+    const may = new Date(2026, 4, 15);
+    const { expenses } = sumActualForMonth([entry('expense', 'weekly', '2026-05-01')], may);
+    expect(expenses).toBe(500);
+  });
+
+  test('monthly entry counts exactly once regardless of anchor day', () => {
+    // A Jan-31 monthly bill, evaluated in February, still occurs once (Feb 28)
+    const feb = new Date(2026, 1, 15);
+    const { expenses } = sumActualForMonth([entry('expense', 'monthly', '2026-01-31')], feb);
+    expect(expenses).toBe(100);
+  });
+
+  test('splits income and expenses and computes net', () => {
+    const june = new Date(2026, 5, 15);
+    const entries = [
+      entry('income',  'monthly',     '2026-06-01', 5000), // 5000
+      entry('expense', 'fortnightly', '2026-06-05', 100),  // Jun 5/19 → 200
+    ];
+    expect(sumActualForMonth(entries, june)).toEqual({ income: 5000, expenses: 200, net: 4800 });
   });
 });
