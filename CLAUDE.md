@@ -76,6 +76,13 @@ All six frequencies are enforced by a DB constraint and mirrored in `freqMultipl
 
 Go tests use `go-sqlmock` to mock the database — tests instantiate handler structs directly without starting a server. Frontend tests use `@testing-library/react` with `fetch` mocked via `jest.fn()` in each test file. New features must have accompanying tests (see memory).
 
+## Branch naming
+
+Name branches for humans: use a `type/short-description` slug with a hyphenated, descriptive
+name and a type prefix — `feature/`, `fix/`, `docs/`, `chore/`, `refactor/`, or `test/`.
+Examples: `feature/add-paycycle`, `fix/broken-rendering`, `docs/branch-naming-convention`.
+Avoid opaque, auto-generated branch names.
+
 ## Pull request conventions
 
 Every PR opened for this repo **must include a `## Testing & follow-up` checklist** in
