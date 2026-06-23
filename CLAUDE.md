@@ -88,3 +88,9 @@ always cover at least:
 - **DB migrations** — when the PR adds a migration, confirm it applies on a fresh DB and that
   the `.down.sql` rolls back cleanly (`make reset-db`).
 - **Follow-ups / out of scope** — known deferred work or limitations so reviewers can track them.
+
+Every follow-up / out-of-scope item from a PR must be tracked in **both places**: the PR body
+(under `## Testing & follow-up`) **and** the root [`TODO.md`](./TODO.md). `TODO.md` uses the
+[todo.md](https://github.com/todomd/todo.md) format — `### Todo` / `### In Progress` / `### Done ✓`
+columns with `- [ ]` / `- [x]` items. Tag each item with its originating PR (e.g. `#pr-19`) and an
+area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the box) when shipped.
