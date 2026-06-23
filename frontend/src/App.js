@@ -7,7 +7,7 @@ import ImportModal from "./ImportModal";
 import PayCycle from "./PayCycle";
 import Budget from "./Budget";
 import UserSettings from "./UserSettings";
-import { totalMonthlyBudgets } from "./utils";
+import { toMonthly, buildCashFlow, sumActualForMonth, parseLocal, totalMonthlyBudgets } from "./utils";
 
 // ── Frequency metadata ────────────────────────────────────────────────────────
 const FREQ_META = {
@@ -40,23 +40,8 @@ const CAT_COLORS = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function toMonthly(amount, freq) {
-  return amount * (FREQ_META[freq]?.mult ?? 1);
-}
-
-function addFreq(date, freq) {
-  const d = new Date(date);
-  switch (freq) {
-    case "weekly":      d.setDate(d.getDate() + 7);         break;
-    case "fortnightly": d.setDate(d.getDate() + 14);        break;
-    case "monthly":     d.setMonth(d.getMonth() + 1);       break;
-    case "quarterly":   d.setMonth(d.getMonth() + 3);       break;
-    case "biannual":    d.setMonth(d.getMonth() + 6);       break;
-    case "yearly":      d.setFullYear(d.getFullYear() + 1); break;
-    default: break;
-  }
-  return d;
-}
+// toMonthly, buildCashFlow, sumActualForMonth and date helpers live in ./utils
+// (single source of truth shared with PayCycle and the unit tests).
 
 const fmt     = n => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Math.abs(n));
 const fmtFull = n => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
@@ -216,8 +201,13 @@ export default function App() {
   const monthlyNet      = monthlyIncome - monthlyExpenses;
   const savingsRate     = monthlyIncome > 0 ? (monthlyNet / monthlyIncome) * 100 : 0;
 
+  // Calendar-accurate totals for the current month — these reflect "heavy"
+  // months where a fortnightly/weekly bill actually falls 3/5 times, unlike the
+  // averaged monthly-equivalent figures above.
+  const { income: actualIncome, expenses: actualExpenses } = sumActualForMonth(entries, today);
+
   const upcoming = entries
-    .map(e => ({ ...e, due: new Date(e.nextDue) }))
+    .map(e => ({ ...e, due: parseLocal(e.nextDue) }))
     .filter(e => { const d = (e.due - today) / 86400000; return d >= 0 && d <= 60; })
     .sort((a, b) => a.due - b.due);
 
@@ -239,19 +229,7 @@ export default function App() {
   const rhythmData = Object.entries(rhythmTotals).sort((a, b) => b[1] - a[1]);
   const maxRhythm  = rhythmData.length > 0 ? rhythmData[0][1] : 1;
 
-  const cfEnd = new Date(today);
-  cfEnd.setDate(cfEnd.getDate() + 90);
-
-  const cfEvents = [];
-  entries.forEach(e => {
-    let d = new Date(e.nextDue);
-    while (d < today) d = addFreq(d, e.frequency);
-    while (d <= cfEnd) {
-      cfEvents.push({ ...e, dueDate: new Date(d), dueStr: d.toISOString().split("T")[0] });
-      d = addFreq(d, e.frequency);
-    }
-  });
-  cfEvents.sort((a, b) => a.dueDate - b.dueDate);
+  const cfEvents = buildCashFlow(entries, today, 90);
 
   const cfWeeks = {};
   cfEvents.forEach(e => {
@@ -269,7 +247,7 @@ export default function App() {
   );
 
   function daysLabel(dateStr) {
-    const d = Math.round((new Date(dateStr) - today) / 86400000);
+    const d = Math.round((parseLocal(dateStr) - today) / 86400000);
     if (d === 0) return "Today";
     if (d === 1) return "Tomorrow";
     return `${d}d`;
@@ -478,8 +456,8 @@ export default function App() {
                 {/* Stats grid */}
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: isMobile ? 10 : 14 }}>
                   {[
-                    { label: "Monthly Income",   val: fmt(monthlyIncome),                               sub: `${fmt(monthlyIncome * 12)}/yr`,           color: T.income  },
-                    { label: "Monthly Expenses", val: fmt(monthlyExpenses),                             sub: `${fmt(monthlyExpenses * 12)}/yr`,         color: T.expense },
+                    { label: "Monthly Income",   val: fmt(monthlyIncome),                               sub: `${fmt(actualIncome)} this month`,         color: T.income  },
+                    { label: "Monthly Expenses", val: fmt(monthlyExpenses),                             sub: `${fmt(actualExpenses + monthlyBudgets)} this month`, color: T.expense },
                     { label: "Monthly Net",      val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet), sub: `${savingsRate.toFixed(1)}% savings rate`, color: monthlyNet >= 0 ? T.income : T.expense },
                     { label: "Annual Net",       val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet * 12), sub: `${entries.length} recurring entries`, color: T.accent  },
                   ].map(c => (

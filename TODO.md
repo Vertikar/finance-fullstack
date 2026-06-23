@@ -8,6 +8,12 @@ in its originating PR's `## Testing & follow-up` checklist.
 
 - [ ] Show each expense category's existing recurring spend alongside its allowance input on the Budget tab #frontend #pr-19
 - [ ] Spent-vs-budget tracking with progress bars (requires per-purchase logging) #frontend #backend #pr-19
+- [ ] Fix `getCurrentCycleWindow` monthly branch — still uses plain `setMonth()` and shares the end-of-month overflow bug (a pay date on the 31st can produce a malformed cycle window); flagged with a code comment #frontend #pr-20
+- [ ] Calendar-accurate backend summary — `/api/entries/summary` uses fixed average multipliers, so a "heavy" month (3 fortnightly payments) isn't reflected server-side; intentional for now #backend #pr-20
+- [ ] Upcoming panel enumerates only each entry's stored `nextDue` (past dates hidden) instead of the true next occurrence; advance `nextDue` on the fly so it always shows a future date #frontend #pr-20
+- [ ] Advance stored `nextDue` after a payment passes (job or post-payment hook) so persisted dates don't drift into the past #backend #pr-20
+- [ ] Add an actual "this month" net sub-figure to the Overview Net card, matching the Income/Expenses cards #frontend #pr-20
+- [ ] Add `prevFreq`/`addFreq` round-trip symmetry tests (e.g. `prevFreq(addFreq(Jan31, monthly, 31), monthly, 31) === Jan31`) as a regression guard #frontend #pr-20
 
 ### In Progress
 
