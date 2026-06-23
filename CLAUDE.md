@@ -76,6 +76,13 @@ All six frequencies are enforced by a DB constraint and mirrored in `freqMultipl
 
 Go tests use `go-sqlmock` to mock the database — tests instantiate handler structs directly without starting a server. Frontend tests use `@testing-library/react` with `fetch` mocked via `jest.fn()` in each test file. New features must have accompanying tests (see memory).
 
+## Branch naming
+
+Name branches for humans: use a `type/short-description` slug with a hyphenated, descriptive
+name and a type prefix — `feature/`, `fix/`, `docs/`, `chore/`, `refactor/`, or `test/`.
+Examples: `feature/add-paycycle`, `fix/broken-rendering`, `docs/branch-naming-convention`.
+Avoid opaque, auto-generated branch names.
+
 ## Pull request conventions
 
 Every PR opened for this repo **must include a `## Testing & follow-up` checklist** in
@@ -88,3 +95,9 @@ always cover at least:
 - **DB migrations** — when the PR adds a migration, confirm it applies on a fresh DB and that
   the `.down.sql` rolls back cleanly (`make reset-db`).
 - **Follow-ups / out of scope** — known deferred work or limitations so reviewers can track them.
+
+Every follow-up / out-of-scope item from a PR must be tracked in **both places**: the PR body
+(under `## Testing & follow-up`) **and** the root [`TODO.md`](./TODO.md). `TODO.md` uses the
+[todo.md](https://github.com/todomd/todo.md) format — `### Todo` / `### In Progress` / `### Done ✓`
+columns with `- [ ]` / `- [x]` items. Tag each item with its originating PR (e.g. `#pr-19`) and an
+area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the box) when shipped.
