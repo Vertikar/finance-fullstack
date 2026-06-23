@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -383,17 +382,6 @@ func TestSummary_DBError(t *testing.T) {
 // Mirrors TestSummary_CalculatesCorrectly's multi-row shape and pairs the unknown
 // frequency with a known one so we can assert it adds nothing to the total.
 func TestSummary_UnknownFrequency(t *testing.T) {
-	// Skipped under -race / CI only. A DB CHECK constraint forbids frequencies
-	// outside the known set, so this state is unreachable in production. Under
-	// the CI runners (the native Go job and the Docker test image, both built
-	// with -race) the go-sqlmock harness intermittently returns a spurious 500
-	// here — a mock artifact, not a product bug, and unreproducible locally
-	// across 200+ runs. It still runs under the plain local `make test-backend`
-	// to preserve the intent.
-	if raceEnabled || os.Getenv("CI") != "" {
-		t.Skip("skipping under -race/CI: go-sqlmock harness nondeterminism on the runner")
-	}
-
 	h, mock := newEntriesHandler(t)
 	rows := sqlmock.NewRows([]string{"amount", "type", "frequency", "category"}).
 		AddRow(2000.00, "expense", "monthly", "Housing"). // known: $2000/mo
@@ -401,6 +389,11 @@ func TestSummary_UnknownFrequency(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT amount, type, frequency, category FROM entries`).
 		WithArgs("user-1").WillReturnRows(rows)
+
+	// Summary also folds in variable-expense budgets; none here.
+	mock.ExpectQuery(`SELECT category, amount FROM budgets`).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"category", "amount"}))
 
 	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries/summary", nil), "user-1")
 	rr := httptest.NewRecorder()
