@@ -56,9 +56,9 @@ func TestList_ReturnsEntries(t *testing.T) {
 	h, mock := newEntriesHandler(t)
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "next_due", "created_at", "updated_at"}).
-		AddRow("e1", "Rent",   1800.00, "expense", "monthly",  "Housing", now, now, now).
-		AddRow("e2", "Salary", 5500.00, "income",  "monthly",  "Salary",  now, now, now).
-		AddRow("e3", "Rego",    900.00, "expense", "biannual", "Transport", now, now, now)
+		AddRow("e1", "Rent", 1800.00, "expense", "monthly", "Housing", now, now, now).
+		AddRow("e2", "Salary", 5500.00, "income", "monthly", "Salary", now, now, now).
+		AddRow("e3", "Rego", 900.00, "expense", "biannual", "Transport", now, now, now)
 
 	mock.ExpectQuery(`SELECT .* FROM entries WHERE user_id`).
 		WithArgs("user-1").WillReturnRows(rows)
@@ -184,13 +184,20 @@ func TestDelete_NotFound(t *testing.T) {
 func TestSummary_CalculatesCorrectly(t *testing.T) {
 	h, mock := newEntriesHandler(t)
 	rows := sqlmock.NewRows([]string{"amount", "type", "frequency", "category"}).
-		AddRow(5500.00, "income",  "monthly",  "Salary").
-		AddRow(1800.00, "expense", "monthly",  "Housing").
-		AddRow(55.00,   "expense", "monthly",  "Health").
-		AddRow(900.00,  "expense", "biannual", "Transport") // 900/6 = $150/mo
+		AddRow(5500.00, "income", "monthly", "Salary").
+		AddRow(1800.00, "expense", "monthly", "Housing").
+		AddRow(55.00, "expense", "monthly", "Health").
+		AddRow(900.00, "expense", "biannual", "Transport") // 900/6 = $150/mo
 
 	mock.ExpectQuery(`SELECT amount, type, frequency, category FROM entries`).
 		WithArgs("user-1").WillReturnRows(rows)
+
+	// Variable-expense budgets are folded into the monthly totals.
+	mock.ExpectQuery(`SELECT category, amount FROM budgets`).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"category", "amount"}).
+			AddRow("Food & Groceries", 600.00).
+			AddRow("Transport", 250.00))
 
 	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries/summary", nil), "user-1")
 	rr := httptest.NewRecorder()
@@ -205,9 +212,16 @@ func TestSummary_CalculatesCorrectly(t *testing.T) {
 	if result.MonthlyIncome != 5500 {
 		t.Errorf("expected income 5500, got %.2f", result.MonthlyIncome)
 	}
-	// 1800 + 55 + (900/6=150) = 2005
-	expectedExpenses := 1800.0 + 55.0 + (900.0 / 6.0)
+	// entries: 1800 + 55 + (900/6=150) = 2005; budgets: 600 + 250 = 850
+	expectedExpenses := 1800.0 + 55.0 + (900.0 / 6.0) + 600.0 + 250.0
 	if result.MonthlyExpenses != expectedExpenses {
 		t.Errorf("expected expenses %.2f, got %.2f", expectedExpenses, result.MonthlyExpenses)
+	}
+	// Transport has both a biannual entry (900/6=150) and a 250 budget → combined 400.
+	if result.ByCategory["Transport"] != 400.0 {
+		t.Errorf("expected combined Transport 400 in byCategory, got %.2f", result.ByCategory["Transport"])
+	}
+	if result.ByCategory["Food & Groceries"] != 600.0 {
+		t.Errorf("expected Food & Groceries budget 600 in byCategory, got %.2f", result.ByCategory["Food & Groceries"])
 	}
 }

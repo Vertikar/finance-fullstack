@@ -41,6 +41,14 @@ export function toMonthly(amount, freq) {
 }
 
 /**
+ * Sum a list of monthly budget allowances. Tolerates missing/undefined input
+ * and string amounts (as returned from form inputs or JSON).
+ */
+export function totalMonthlyBudgets(budgets) {
+  return (budgets || []).reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+}
+
+/**
  * Advance a date by one payment period.
  */
 export function addFreq(date, freq) {

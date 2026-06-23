@@ -75,3 +75,16 @@ All six frequencies are enforced by a DB constraint and mirrored in `freqMultipl
 ### Testing patterns
 
 Go tests use `go-sqlmock` to mock the database — tests instantiate handler structs directly without starting a server. Frontend tests use `@testing-library/react` with `fetch` mocked via `jest.fn()` in each test file. New features must have accompanying tests (see memory).
+
+## Pull request conventions
+
+Every PR opened for this repo **must include a `## Testing & follow-up` checklist** in
+its description (GitHub markdown `- [ ]` task items). Tailor the items to the change, and
+always cover at least:
+
+- **Automated tests / CI** — backend `go test ./...`, frontend Jest suite, and `npm run build`
+  (note which passed locally and which CI jobs must go green).
+- **Manual end-to-end verification** — the concrete steps to exercise the change in the running app.
+- **DB migrations** — when the PR adds a migration, confirm it applies on a fresh DB and that
+  the `.down.sql` rolls back cleanly (`make reset-db`).
+- **Follow-ups / out of scope** — known deferred work or limitations so reviewers can track them.

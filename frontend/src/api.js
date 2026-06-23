@@ -40,6 +40,17 @@ export const api = {
 
   getSummary: () => request("/entries/summary"),
 
+  getBudgets: () => request("/budgets"),
+
+  createBudget: (budget) =>
+    request("/budgets", { method: "POST", body: JSON.stringify(budget) }),
+
+  updateBudget: (id, budget) =>
+    request(`/budgets/${id}`, { method: "PUT", body: JSON.stringify(budget) }),
+
+  deleteBudget: (id) =>
+    request(`/budgets/${id}`, { method: "DELETE" }),
+
   getPayCycleSettings: () => request("/settings/pay-cycle"),
 
   savePayCycleSettings: (settings) =>
