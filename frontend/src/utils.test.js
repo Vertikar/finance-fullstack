@@ -1,6 +1,16 @@
 import { toMonthly, addFreq, fmt, fmtFull, savingsRate, buildCashFlow,
          prevFreq, getCurrentCycleWindow, getExpensesDueInCycle,
-         sumActualForMonth } from './utils';
+         sumActualForMonth, totalMonthlyBudgets } from './utils';
+
+// ─── totalMonthlyBudgets ───────────────────────────────────────────────────────
+
+describe('totalMonthlyBudgets', () => {
+  test('sums budget amounts',          () => expect(totalMonthlyBudgets([{ amount: 600 }, { amount: 250 }])).toBe(850));
+  test('empty array returns 0',        () => expect(totalMonthlyBudgets([])).toBe(0));
+  test('undefined input returns 0',    () => expect(totalMonthlyBudgets(undefined)).toBe(0));
+  test('coerces string amounts',       () => expect(totalMonthlyBudgets([{ amount: '600' }, { amount: '50.5' }])).toBeCloseTo(650.5));
+  test('ignores non-numeric amounts',  () => expect(totalMonthlyBudgets([{ amount: 'abc' }, { amount: 100 }])).toBe(100));
+});
 
 // ─── toMonthly ───────────────────────────────────────────────────────────────
 

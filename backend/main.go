@@ -41,10 +41,11 @@ func main() {
 	}
 
 	// Pass the validated secret explicitly — no handler reads os.Getenv directly.
-	authH         := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
-	entriesH      := &handlers.EntriesHandler{DB: database}
+	authH := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
+	entriesH := &handlers.EntriesHandler{DB: database}
+	budgetsH := &handlers.BudgetsHandler{DB: database}
 	importExportH := &handlers.ImportExportHandler{DB: database}
-	settingsH     := &handlers.SettingsHandler{DB: database}
+	settingsH := &handlers.SettingsHandler{DB: database}
 
 	r := chi.NewRouter()
 
@@ -71,24 +72,30 @@ func main() {
 		r.Use(mw.NewAuth(jwtSecret))
 
 		// Entries CRUD
-		r.Get("/api/entries",        entriesH.List)
-		r.Post("/api/entries",       entriesH.Create)
-		r.Put("/api/entries/{id}",   entriesH.Update)
+		r.Get("/api/entries", entriesH.List)
+		r.Post("/api/entries", entriesH.Create)
+		r.Put("/api/entries/{id}", entriesH.Update)
 		r.Delete("/api/entries/{id}", entriesH.Delete)
 
 		// Computed summary
 		r.Get("/api/entries/summary", entriesH.Summary)
 
+		// Variable-expense budgets (monthly allowances per category)
+		r.Get("/api/budgets", budgetsH.List)
+		r.Post("/api/budgets", budgetsH.Create)
+		r.Put("/api/budgets/{id}", budgetsH.Update)
+		r.Delete("/api/budgets/{id}", budgetsH.Delete)
+
 		// CSV export & import
 		// Note: chi matches static segments before parameterised ones, so these
 		// resolve correctly ahead of any future /api/entries/{id} GET route.
-		r.Get("/api/entries/export",  importExportH.Export)
+		r.Get("/api/entries/export", importExportH.Export)
 		r.Post("/api/entries/import", importExportH.Import)
 
 		// User settings
 		r.Get("/api/settings/pay-cycle", settingsH.GetPayCycle)
 		r.Put("/api/settings/pay-cycle", settingsH.PutPayCycle)
-		r.Put("/api/settings/password",  settingsH.ChangePassword)
+		r.Put("/api/settings/password", settingsH.ChangePassword)
 	})
 
 	port := getEnv("PORT", "8081")

@@ -5,8 +5,9 @@ import AuthScreen from "./AuthScreen";
 import { THEMES, SunIcon, MoonIcon } from "./themes";
 import ImportModal from "./ImportModal";
 import PayCycle from "./PayCycle";
+import Budget from "./Budget";
 import UserSettings from "./UserSettings";
-import { toMonthly, buildCashFlow, sumActualForMonth, parseLocal } from "./utils";
+import { toMonthly, buildCashFlow, sumActualForMonth, parseLocal, totalMonthlyBudgets } from "./utils";
 
 // ── Frequency metadata ────────────────────────────────────────────────────────
 const FREQ_META = {
@@ -106,6 +107,7 @@ const TABS = [
   { key: "payments",  icon: "☰", label: "Payments"  },
   { key: "cashflow",  icon: "◈", label: "Cash Flow" },
   { key: "paycycle",  icon: "◑", label: "Pay Cycle" },
+  { key: "budget",    icon: "▣", label: "Budget"    },
   { key: "settings",  icon: "⚙", label: "Settings"  },
 ];
 
@@ -125,6 +127,7 @@ export default function App() {
 
   const [user,       setUser]       = useState(getStoredUser);
   const [entries,    setEntries]    = useState([]);
+  const [budgets,    setBudgets]    = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [tab,        setTab]        = useState("dashboard");
   const [modal,      setModal]      = useState(null);
@@ -146,15 +149,26 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []); 
+  }, []);
 
-  useEffect(() => { if (user) loadEntries(); }, [user, loadEntries]);
+  const loadBudgets = useCallback(async () => {
+    try {
+      const data = await api.getBudgets();
+      setBudgets(Array.isArray(data) ? data : []);
+    } catch (e) {
+      if (e.message.includes("token")) handleLogout();
+      setApiError(e.message);
+    }
+  }, []);
+
+  useEffect(() => { if (user) { loadEntries(); loadBudgets(); } }, [user, loadEntries, loadBudgets]);
 
   function handleLogout() {
     localStorage.removeItem("finance_token");
     localStorage.removeItem("finance_user");
     setUser(null);
     setEntries([]);
+    setBudgets([]);
   }
 
   function toggleTheme() {
@@ -179,8 +193,11 @@ export default function App() {
   const income   = entries.filter(e => e.type === "income");
   const expenses = entries.filter(e => e.type === "expense");
 
+  // Variable-expense budgets are flat monthly allowances folded into the
+  // monthly-equivalent totals so "leftover" reflects planned variable spending.
+  const monthlyBudgets  = totalMonthlyBudgets(budgets);
   const monthlyIncome   = income.reduce((s, e)   => s + toMonthly(e.amount, e.frequency), 0);
-  const monthlyExpenses = expenses.reduce((s, e) => s + toMonthly(e.amount, e.frequency), 0);
+  const monthlyExpenses = expenses.reduce((s, e) => s + toMonthly(e.amount, e.frequency), 0) + monthlyBudgets;
   const monthlyNet      = monthlyIncome - monthlyExpenses;
   const savingsRate     = monthlyIncome > 0 ? (monthlyNet / monthlyIncome) * 100 : 0;
 
@@ -197,6 +214,9 @@ export default function App() {
   const catTotals = {};
   expenses.forEach(e => {
     catTotals[e.category] = (catTotals[e.category] || 0) + toMonthly(e.amount, e.frequency);
+  });
+  budgets.forEach(b => {
+    catTotals[b.category] = (catTotals[b.category] || 0) + (Number(b.amount) || 0);
   });
   const catData = Object.entries(catTotals)
     .map(([name, value]) => ({ name, value: Math.round(value), color: CAT_COLORS[name] || "#94a3b8" }))
@@ -437,7 +457,7 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: isMobile ? 10 : 14 }}>
                   {[
                     { label: "Monthly Income",   val: fmt(monthlyIncome),                               sub: `${fmt(actualIncome)} this month`,         color: T.income  },
-                    { label: "Monthly Expenses", val: fmt(monthlyExpenses),                             sub: `${fmt(actualExpenses)} this month`,       color: T.expense },
+                    { label: "Monthly Expenses", val: fmt(monthlyExpenses),                             sub: `${fmt(actualExpenses + monthlyBudgets)} this month`, color: T.expense },
                     { label: "Monthly Net",      val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet), sub: `${savingsRate.toFixed(1)}% savings rate`, color: monthlyNet >= 0 ? T.income : T.expense },
                     { label: "Annual Net",       val: (monthlyNet >= 0 ? "+" : "–") + fmt(monthlyNet * 12), sub: `${entries.length} recurring entries`, color: T.accent  },
                   ].map(c => (
@@ -707,6 +727,17 @@ export default function App() {
             {/* ── PAY CYCLE ─────────────────────────────────────────────── */}
             {tab === "paycycle" && (
               <PayCycle entries={entries} T={T} isMobile={isMobile} />
+            )}
+
+            {tab === "budget" && (
+              <Budget
+                entries={entries}
+                budgets={budgets}
+                setBudgets={setBudgets}
+                T={T}
+                isMobile={isMobile}
+                setApiError={setApiError}
+              />
             )}
 
             {tab === "settings" && (
