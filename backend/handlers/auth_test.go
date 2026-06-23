@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -155,6 +156,56 @@ func TestLogin_MissingFields(t *testing.T) {
 		map[string]string{"email": "only@example.com"})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rr.Code)
+	}
+}
+
+// ─── Error paths ──────────────────────────────────────────────────────────────
+
+func doRaw(t *testing.T, h http.HandlerFunc, method, path string, raw string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewReader([]byte(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+	return rr
+}
+
+func TestRegister_DBError(t *testing.T) {
+	h, mock := newAuthHandler(t)
+	mock.ExpectQuery(`INSERT INTO users`).WillReturnError(errors.New("db down"))
+
+	rr := doJSON(t, h.Register, http.MethodPost, "/api/auth/register",
+		map[string]string{"email": "a@b.com", "password": "password123"})
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on insert error, got %d", rr.Code)
+	}
+}
+
+func TestRegister_MalformedJSON(t *testing.T) {
+	h, _ := newAuthHandler(t)
+	rr := doRaw(t, h.Register, http.MethodPost, "/api/auth/register", `{not json`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for malformed JSON, got %d", rr.Code)
+	}
+}
+
+func TestLogin_DBError(t *testing.T) {
+	h, mock := newAuthHandler(t)
+	mock.ExpectQuery(`SELECT id, email, password_hash FROM users`).
+		WithArgs("a@b.com").WillReturnError(errors.New("db down"))
+
+	rr := doJSON(t, h.Login, http.MethodPost, "/api/auth/login",
+		map[string]string{"email": "a@b.com", "password": "whatever"})
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on select error, got %d", rr.Code)
+	}
+}
+
+func TestLogin_MalformedJSON(t *testing.T) {
+	h, _ := newAuthHandler(t)
+	rr := doRaw(t, h.Login, http.MethodPost, "/api/auth/login", `{not json`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for malformed JSON, got %d", rr.Code)
 	}
 }
 

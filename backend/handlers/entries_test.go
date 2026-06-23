@@ -3,7 +3,9 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +16,14 @@ import (
 	"github.com/yourname/finance-api/handlers"
 	mw "github.com/yourname/finance-api/middleware"
 )
+
+// withChiParam attaches a chi URL parameter (e.g. the {id} segment) to a request
+// so handlers that call chi.URLParam resolve it outside the router.
+func withChiParam(r *http.Request, key, val string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add(key, val)
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+}
 
 func newEntriesHandler(t *testing.T) (*handlers.EntriesHandler, sqlmock.Sqlmock) {
 	t.Helper()
@@ -209,5 +219,170 @@ func TestSummary_CalculatesCorrectly(t *testing.T) {
 	expectedExpenses := 1800.0 + 55.0 + (900.0 / 6.0)
 	if result.MonthlyExpenses != expectedExpenses {
 		t.Errorf("expected expenses %.2f, got %.2f", expectedExpenses, result.MonthlyExpenses)
+	}
+}
+
+// ─── Error paths & edge cases ─────────────────────────────────────────────────
+
+func TestList_DBError(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	mock.ExpectQuery(`SELECT .* FROM entries WHERE user_id`).
+		WithArgs("user-1").WillReturnError(errors.New("connection refused"))
+
+	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries", nil), "user-1")
+	rr := httptest.NewRecorder()
+	h.List(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on query error, got %d", rr.Code)
+	}
+}
+
+func TestCreate_DBError(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	mock.ExpectQuery(`INSERT INTO entries`).WillReturnError(errors.New("constraint violation"))
+
+	payload := handlers.Entry{Name: "Netflix", Amount: 18.00, Type: "expense", Frequency: "monthly", Category: "Subscriptions", NextDue: "2026-06-01"}
+	body, _ := json.Marshal(payload)
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on insert error, got %d", rr.Code)
+	}
+}
+
+func TestCreate_NegativeAmount(t *testing.T) {
+	h, _ := newEntriesHandler(t)
+	payload := handlers.Entry{Name: "Refund", Amount: -50, NextDue: "2026-06-01"}
+	body, _ := json.Marshal(payload)
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for negative amount, got %d", rr.Code)
+	}
+}
+
+func TestCreate_MalformedJSON(t *testing.T) {
+	h, _ := newEntriesHandler(t)
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader([]byte(`{not json`))), "user-1")
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for malformed JSON, got %d", rr.Code)
+	}
+}
+
+// ─── Update — not previously covered ──────────────────────────────────────────
+
+func TestUpdate_Success(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	now := time.Now()
+	mock.ExpectQuery(`UPDATE entries SET`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "next_due"}).AddRow("e1", now))
+
+	payload := handlers.Entry{Name: "Rent", Amount: 2000, Type: "expense", Frequency: "monthly", Category: "Housing", NextDue: "2026-07-01"}
+	body, _ := json.Marshal(payload)
+	req := withChiParam(withUserID(httptest.NewRequest(http.MethodPut, "/api/entries/e1", bytes.NewReader(body)), "user-1"), "id", "e1")
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	mock.ExpectQuery(`UPDATE entries SET`).WillReturnError(sql.ErrNoRows)
+
+	payload := handlers.Entry{Name: "Rent", Amount: 2000, NextDue: "2026-07-01"}
+	body, _ := json.Marshal(payload)
+	req := withChiParam(withUserID(httptest.NewRequest(http.MethodPut, "/api/entries/missing", bytes.NewReader(body)), "user-1"), "id", "missing")
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("want 404 when no row matches, got %d", rr.Code)
+	}
+}
+
+func TestUpdate_DBError(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	mock.ExpectQuery(`UPDATE entries SET`).WillReturnError(errors.New("db down"))
+
+	payload := handlers.Entry{Name: "Rent", Amount: 2000, NextDue: "2026-07-01"}
+	body, _ := json.Marshal(payload)
+	req := withChiParam(withUserID(httptest.NewRequest(http.MethodPut, "/api/entries/e1", bytes.NewReader(body)), "user-1"), "id", "e1")
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on update error, got %d", rr.Code)
+	}
+}
+
+func TestUpdate_MalformedJSON(t *testing.T) {
+	h, _ := newEntriesHandler(t)
+	req := withChiParam(withUserID(httptest.NewRequest(http.MethodPut, "/api/entries/e1", bytes.NewReader([]byte(`{bad`))), "user-1"), "id", "e1")
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for malformed JSON, got %d", rr.Code)
+	}
+}
+
+func TestDelete_DBError(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	mock.ExpectExec(`DELETE FROM entries`).WithArgs("e1", "user-1").WillReturnError(errors.New("db down"))
+
+	req := withChiParam(withUserID(httptest.NewRequest(http.MethodDelete, "/api/entries/e1", nil), "user-1"), "id", "e1")
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on delete error, got %d", rr.Code)
+	}
+}
+
+func TestSummary_DBError(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	mock.ExpectQuery(`SELECT amount, type, frequency, category FROM entries`).
+		WithArgs("user-1").WillReturnError(errors.New("db down"))
+
+	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries/summary", nil), "user-1")
+	rr := httptest.NewRecorder()
+	h.Summary(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on summary query error, got %d", rr.Code)
+	}
+}
+
+// An unknown frequency has no multiplier; it must not crash and contributes 0.
+func TestSummary_UnknownFrequency(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	rows := sqlmock.NewRows([]string{"amount", "type", "frequency", "category"}).
+		AddRow(100.00, "expense", "daily", "Misc") // "daily" is not a known frequency
+
+	mock.ExpectQuery(`SELECT amount, type, frequency, category FROM entries`).
+		WithArgs("user-1").WillReturnRows(rows)
+
+	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries/summary", nil), "user-1")
+	rr := httptest.NewRecorder()
+	h.Summary(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 even with unknown frequency, got %d", rr.Code)
+	}
+	var result handlers.Summary
+	json.NewDecoder(rr.Body).Decode(&result)
+	if result.MonthlyExpenses != 0 {
+		t.Errorf("expected 0 expenses for unknown frequency, got %.2f", result.MonthlyExpenses)
 	}
 }

@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -205,5 +206,105 @@ func TestPutPayCycle_Success(t *testing.T) {
 	}
 	if result["last_pay_date"] != "2026-06-01" {
 		t.Errorf("expected '2026-06-01', got %v", result["last_pay_date"])
+	}
+}
+
+// ─── Error paths & edge cases ─────────────────────────────────────────────────
+
+func TestGetPayCycle_DBError(t *testing.T) {
+	h, mock := newSettingsHandler(t)
+	mock.ExpectQuery(`SELECT pay_cycle`).
+		WithArgs("user-1").WillReturnError(errors.New("db down"))
+
+	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/settings/pay-cycle", nil), "user-1")
+	rr := httptest.NewRecorder()
+	h.GetPayCycle(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on query error, got %d", rr.Code)
+	}
+}
+
+func TestChangePassword_MalformedJSON(t *testing.T) {
+	h, _ := newSettingsHandler(t)
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader([]byte(`{bad`))), "user-1")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for malformed JSON, got %d", rr.Code)
+	}
+}
+
+func TestChangePassword_SelectDBError(t *testing.T) {
+	h, mock := newSettingsHandler(t)
+	mock.ExpectQuery(`SELECT password_hash FROM users`).
+		WithArgs("user-1").WillReturnError(errors.New("db down"))
+
+	body, _ := json.Marshal(map[string]string{"current_password": "oldpassword", "new_password": "newpassword123"})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader(body)), "user-1")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on select error, got %d", rr.Code)
+	}
+}
+
+func TestChangePassword_UpdateDBError(t *testing.T) {
+	h, mock := newSettingsHandler(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("oldpassword"), bcrypt.MinCost)
+	mock.ExpectQuery(`SELECT password_hash FROM users`).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(string(hash)))
+	mock.ExpectExec(`UPDATE users SET password_hash`).
+		WithArgs(sqlmock.AnyArg(), "user-1").WillReturnError(errors.New("db down"))
+
+	body, _ := json.Marshal(map[string]string{"current_password": "oldpassword", "new_password": "newpassword123"})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/password", bytes.NewReader(body)), "user-1")
+	rr := httptest.NewRecorder()
+	h.ChangePassword(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on update error, got %d", rr.Code)
+	}
+}
+
+func TestPutPayCycle_MalformedJSON(t *testing.T) {
+	h, _ := newSettingsHandler(t)
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/pay-cycle", bytes.NewReader([]byte(`{bad`))), "user-1")
+	rr := httptest.NewRecorder()
+	h.PutPayCycle(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for malformed JSON, got %d", rr.Code)
+	}
+}
+
+// A valid cycle is still rejected when last_pay_date is absent.
+func TestPutPayCycle_ValidCycleMissingDate(t *testing.T) {
+	h, _ := newSettingsHandler(t)
+	body, _ := json.Marshal(map[string]string{"pay_cycle": "fortnightly"})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/pay-cycle", bytes.NewReader(body)), "user-1")
+	rr := httptest.NewRecorder()
+	h.PutPayCycle(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for fortnightly without last_pay_date, got %d", rr.Code)
+	}
+}
+
+func TestPutPayCycle_DBError(t *testing.T) {
+	h, mock := newSettingsHandler(t)
+	mock.ExpectQuery(`UPDATE users SET pay_cycle`).
+		WithArgs("monthly", "2026-06-01", "user-1").WillReturnError(errors.New("db down"))
+
+	body, _ := json.Marshal(map[string]string{"pay_cycle": "monthly", "last_pay_date": "2026-06-01"})
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/api/settings/pay-cycle", bytes.NewReader(body)), "user-1")
+	rr := httptest.NewRecorder()
+	h.PutPayCycle(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500 on update error, got %d", rr.Code)
 	}
 }
