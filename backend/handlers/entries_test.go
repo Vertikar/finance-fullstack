@@ -365,10 +365,13 @@ func TestSummary_DBError(t *testing.T) {
 }
 
 // An unknown frequency has no multiplier; it must not crash and contributes 0.
+// Mirrors TestSummary_CalculatesCorrectly's multi-row shape and pairs the unknown
+// frequency with a known one so we can assert it adds nothing to the total.
 func TestSummary_UnknownFrequency(t *testing.T) {
 	h, mock := newEntriesHandler(t)
 	rows := sqlmock.NewRows([]string{"amount", "type", "frequency", "category"}).
-		AddRow(100.00, "expense", "daily", "Misc") // "daily" is not a known frequency
+		AddRow(2000.00, "expense", "monthly", "Housing"). // known: $2000/mo
+		AddRow(100.00, "expense", "daily", "Misc")        // "daily" is not a known frequency → 0
 
 	mock.ExpectQuery(`SELECT amount, type, frequency, category FROM entries`).
 		WithArgs("user-1").WillReturnRows(rows)
@@ -382,7 +385,8 @@ func TestSummary_UnknownFrequency(t *testing.T) {
 	}
 	var result handlers.Summary
 	json.NewDecoder(rr.Body).Decode(&result)
-	if result.MonthlyExpenses != 0 {
-		t.Errorf("expected 0 expenses for unknown frequency, got %.2f", result.MonthlyExpenses)
+	// Only the known monthly entry counts; the unknown frequency contributes 0.
+	if result.MonthlyExpenses != 2000 {
+		t.Errorf("unknown frequency should contribute 0; expected expenses 2000, got %.2f", result.MonthlyExpenses)
 	}
 }
