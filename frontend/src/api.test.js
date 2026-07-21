@@ -182,3 +182,66 @@ describe('api.changePassword', () => {
     await expect(api.changePassword('wrongpass', 'newpass123')).rejects.toThrow('current password is incorrect');
   });
 });
+
+describe('api.exportEntries', () => {
+  // exportEntries reads a blob and parses the filename out of Content-Disposition,
+  // so it needs a richer mock than the JSON helper above.
+  const blobResponse = (disposition) => {
+    const blob = new Blob(['name,amount\nRent,1800'], { type: 'text/csv' });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      blob: () => Promise.resolve(blob),
+      headers: { get: (h) => (h === 'Content-Disposition' ? disposition : null) },
+    });
+  };
+
+  test('returns the blob and filename parsed from Content-Disposition', async () => {
+    mockFetch.mockReturnValueOnce(blobResponse('attachment; filename="entries.csv"'));
+    const { blob, filename } = await api.exportEntries();
+    expect(mockFetch).toHaveBeenCalledWith('/api/entries/export', expect.any(Object));
+    expect(filename).toBe('entries.csv');
+    expect(blob).toBeInstanceOf(Blob);
+  });
+
+  test('falls back to a generated filename when the header is missing', async () => {
+    mockFetch.mockReturnValueOnce(blobResponse(null));
+    const { filename } = await api.exportEntries();
+    expect(filename).toMatch(/^finance-export-\d{4}-\d{2}-\d{2}\.csv$/);
+  });
+
+  test('includes the Authorization header when a token is stored', async () => {
+    localStorageMock.getItem.mockReturnValueOnce('export-token');
+    mockFetch.mockReturnValueOnce(blobResponse('attachment; filename="entries.csv"'));
+    await api.exportEntries();
+    const [, opts] = mockFetch.mock.calls[0];
+    expect(opts.headers['Authorization']).toBe('Bearer export-token');
+  });
+
+  test('throws when the response is not ok', async () => {
+    mockFetch.mockReturnValueOnce(
+      Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'boom' }) })
+    );
+    await expect(api.exportEntries()).rejects.toThrow('boom');
+  });
+});
+
+describe('api.importEntries', () => {
+  test('POSTs the file as FormData and returns the result body', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse({ imported: 2, skipped: 1, errors: [] }));
+    const file = new File(['name,amount\nRent,1800'], 'data.csv', { type: 'text/csv' });
+    const result = await api.importEntries(file);
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/entries/import');
+    expect(opts.method).toBe('POST');
+    expect(opts.body).toBeInstanceOf(FormData);
+    expect(result).toEqual({ imported: 2, skipped: 1, errors: [] });
+  });
+
+  test('throws with the server error message on failure', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse({ error: 'invalid file' }, 400));
+    const file = new File(['x'], 'bad.csv', { type: 'text/csv' });
+    await expect(api.importEntries(file)).rejects.toThrow('invalid file');
+  });
+});

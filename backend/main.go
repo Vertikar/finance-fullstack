@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"embed"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -31,13 +32,8 @@ func main() {
 
 	// ── Validate JWT_SECRET at startup — fail fast rather than run insecurely ──
 	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET environment variable is required but not set. " +
-			"Generate one with: openssl rand -hex 32")
-	}
-	if len(jwtSecret) < 32 {
-		log.Fatal("JWT_SECRET must be at least 32 characters. " +
-			"Generate a strong one with: openssl rand -hex 32")
+	if err := validateJWTSecret(jwtSecret); err != nil {
+		log.Fatal(err)
 	}
 
 	// Pass the validated secret explicitly — no handler reads os.Getenv directly.
@@ -103,6 +99,21 @@ func main() {
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// validateJWTSecret enforces the startup security requirement that JWT_SECRET
+// is present and long enough to be a meaningful HMAC key. Extracted from main()
+// so the rule can be unit-tested without spawning the process.
+func validateJWTSecret(secret string) error {
+	if secret == "" {
+		return errors.New("JWT_SECRET environment variable is required but not set. " +
+			"Generate one with: openssl rand -hex 32")
+	}
+	if len(secret) < 32 {
+		return errors.New("JWT_SECRET must be at least 32 characters. " +
+			"Generate a strong one with: openssl rand -hex 32")
+	}
+	return nil
 }
 
 func runMigrations(database *sql.DB) {

@@ -8,7 +8,7 @@ const MAX_PREVIEW_ROWS = 10;
 const MAX_IMPORT_ROWS  = 1000;
 
 // ── CSV parser ─────────────────────────────────────────────────────────────────
-function parseCSVLine(line) {
+export function parseCSVLine(line) {
   const fields = [];
   let i = 0;
   while (i <= line.length) {
@@ -34,7 +34,7 @@ function parseCSVLine(line) {
   return fields;
 }
 
-function parseCSVText(text) {
+export function parseCSVText(text) {
   const normalised = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = normalised.split("\n").filter(l => l.trim() !== "");
   if (lines.length === 0) return { headers: [], rows: [] };
