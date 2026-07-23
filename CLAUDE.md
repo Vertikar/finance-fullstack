@@ -115,7 +115,16 @@ area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the
   logic` (branch `claude/test-coverage-analysis-ggvi5h`). No production behaviour changes
   except a `validateJWTSecret()` testability refactor in `main.go`. **Awaiting Henrik's manual
   test on the local deployment, then merge.**
-- Follow-ups from merged PRs live in `TODO.md` (all currently unchecked, from PRs #19/#20).
+- **PR #25 open** — `chore: rename Go module to github.com/vertikar/finance-api` (branch
+  `chore/rename-go-module`). Mechanical module-path correction (no behaviour change). Merge first;
+  it is the base for PR #26.
+- **PR #26 open** — `feat: DB-backed categories with buckets grouping` (branch
+  `feature/categories-and-buckets`, stacked on #25). Phase 1 of the transaction-import feature:
+  migration 005 (global `categories` table + bucket column + seed), `GET /api/categories`,
+  frontend fetch with constant fallback, Overview bucket card + Payments bucket filter.
+  Migration verified against a real Postgres. **Awaiting manual local verification, then merge.**
+- Follow-ups from merged PRs live in `TODO.md` (from PRs #19/#20, plus #26's deferred bucket/admin
+  items).
 
 ### Next feature: transaction import, recurring detection & buckets
 
@@ -149,6 +158,7 @@ Planned branches, in order (each with its own PR):
 
 1. `feature/categories-and-buckets` — migration 005 (categories + bucket column + seed),
    `GET /api/categories`, frontend fetch + bucket card/filter. Independently shippable.
+   **→ PR #26 (open, stacked on the #25 module rename).**
 2. `feature/transactions-schema-and-import` — migration 006 (import_sources, import_batches,
    transactions), mapper engine + 6 presets + fixtures, import/dedup endpoint.
 3. `feature/recurring-detection-engine` — detection + candidates/apply/undo endpoints.
