@@ -40,6 +40,8 @@ export const api = {
 
   getSummary: () => request("/entries/summary"),
 
+  getCategories: () => request("/categories"),
+
   getBudgets: () => request("/budgets"),
 
   createBudget: (budget) =>

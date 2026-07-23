@@ -40,6 +40,7 @@ func main() {
 	authH := &handlers.AuthHandler{DB: database, Secret: jwtSecret}
 	entriesH := &handlers.EntriesHandler{DB: database}
 	budgetsH := &handlers.BudgetsHandler{DB: database}
+	categoriesH := &handlers.CategoriesHandler{DB: database}
 	importExportH := &handlers.ImportExportHandler{DB: database}
 	settingsH := &handlers.SettingsHandler{DB: database}
 
@@ -75,6 +76,9 @@ func main() {
 
 		// Computed summary
 		r.Get("/api/entries/summary", entriesH.Summary)
+
+		// Category catalogue (global reference data with bucket + colour)
+		r.Get("/api/categories", categoriesH.List)
 
 		// Variable-expense budgets (monthly allowances per category)
 		r.Get("/api/budgets", budgetsH.List)
