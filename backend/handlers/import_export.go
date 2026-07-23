@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	mw "github.com/yourname/finance-api/middleware"
+	mw "github.com/vertikar/finance-api/middleware"
 )
 
 // ImportExportHandler provides CSV export and import for a user's entries.

@@ -1,4 +1,4 @@
-module github.com/yourname/finance-api
+module github.com/vertikar/finance-api
 
 go 1.22
 

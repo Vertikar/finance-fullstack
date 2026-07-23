@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	mw "github.com/yourname/finance-api/middleware"
+	mw "github.com/vertikar/finance-api/middleware"
 	"golang.org/x/crypto/bcrypt"
 )
 
