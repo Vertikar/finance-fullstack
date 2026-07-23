@@ -16,9 +16,9 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/lib/pq"
 
-	"github.com/yourname/finance-api/db"
-	"github.com/yourname/finance-api/handlers"
-	mw "github.com/yourname/finance-api/middleware"
+	"github.com/vertikar/finance-api/db"
+	"github.com/vertikar/finance-api/handlers"
+	mw "github.com/vertikar/finance-api/middleware"
 )
 
 //go:embed migrations/*.sql

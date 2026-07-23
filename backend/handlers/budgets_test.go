@@ -12,7 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-chi/chi/v5"
-	"github.com/yourname/finance-api/handlers"
+	"github.com/vertikar/finance-api/handlers"
 )
 
 func newBudgetsHandler(t *testing.T) (*handlers.BudgetsHandler, sqlmock.Sqlmock) {

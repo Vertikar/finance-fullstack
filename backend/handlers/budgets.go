@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	mw "github.com/yourname/finance-api/middleware"
+	mw "github.com/vertikar/finance-api/middleware"
 )
 
 type BudgetsHandler struct {

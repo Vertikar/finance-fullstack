@@ -13,8 +13,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-chi/chi/v5"
-	"github.com/yourname/finance-api/handlers"
-	mw "github.com/yourname/finance-api/middleware"
+	"github.com/vertikar/finance-api/handlers"
+	mw "github.com/vertikar/finance-api/middleware"
 )
 
 // withChiParam attaches a chi URL parameter (e.g. the {id} segment) to a request

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	mw "github.com/yourname/finance-api/middleware"
+	mw "github.com/vertikar/finance-api/middleware"
 )
 
 const testSecret = "this-is-a-test-secret-at-least-32-chars!!"

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/yourname/finance-api/handlers"
+	"github.com/vertikar/finance-api/handlers"
 	"golang.org/x/crypto/bcrypt"
 )
 
