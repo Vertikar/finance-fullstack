@@ -101,3 +101,66 @@ Every follow-up / out-of-scope item from a PR must be tracked in **both places**
 [todo.md](https://github.com/todomd/todo.md) format — `### Todo` / `### In Progress` / `### Done ✓`
 columns with `- [ ]` / `- [x]` items. Tag each item with its originating PR (e.g. `#pr-19`) and an
 area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the box) when shipped.
+
+## Project status & plan
+
+> **Maintained section** — update this whenever a PR merges, a feature is scoped, or
+> priorities change. Last updated: **2026-07-23**.
+
+### Current state
+
+- `main` is green. Last merge: PR #20 (payment-frequency date edge cases) + PR #22
+  (branch-naming docs), 2026-06-23.
+- **PR #23 open** — `test: expand backend and frontend coverage for error paths and untested
+  logic` (branch `claude/test-coverage-analysis-ggvi5h`). No production behaviour changes
+  except a `validateJWTSecret()` testability refactor in `main.go`. **Awaiting Henrik's manual
+  test on the local deployment, then merge.**
+- Follow-ups from merged PRs live in `TODO.md` (all currently unchecked, from PRs #19/#20).
+
+### Next feature: transaction import, recurring detection & buckets
+
+Fully scoped (see `transaction-import-feature-scope.md`, v2). Summary: import raw
+bank-transaction CSVs, detect recurring merchant+amount+interval patterns, and let the user
+approve them into `entries`. Validated against a real 3,112-row Frollo export — detection
+cleanly identifies mortgage (fortnightly, stdev 0.3d), Telstra, Disney+, RACV, AWS, etc.
+
+Key decisions (agreed 2026-07-23):
+
+1. **Phased**: transactions stored permanently now (ledger/reconciliation UI is Phase 2);
+   `transactions.matched_entry_id` makes Phase 2 additive.
+2. **Generic column-mapper** with presets: Frollo (richest — has category + bucket + external
+   ID), plus raw CSVs from CommBank, Up, ubank, ING Direct, AustralianSuper. Verify each
+   bank's real export layout during implementation. Hash-based `external_id` dedup for banks
+   without transaction IDs.
+3. **Categories become DB-backed** (`categories` table, seeded with existing 18 + ~28 new
+   categories adopted from the Frollo taxonomy). `CATEGORIES`/`CAT_COLORS` constants in
+   `App.js` are replaced by `GET /api/categories`.
+4. **Buckets**: Frollo's `budget_category` (income/living/lifestyle/goals) becomes a
+   first-class grouping — a `bucket` column on `categories`; entries inherit bucket via
+   category. Phase 1 UI: bucket breakdown card on Overview + bucket filter on Payments.
+5. **All transfers excluded from detection and income** — including recurring
+   third-party transfers (e.g. the fortnightly mortgage contribution transfer); they are
+   money movement, not income.
+6. Round-ups, interest, fees, `included=false` rows excluded from detection ($2 amount floor).
+7. Detection confidence threshold defaults to 0.5, exposed as a slider in review UI;
+   tune the default after the first real import.
+
+Planned branches, in order (each with its own PR):
+
+1. `feature/categories-and-buckets` — migration 005 (categories + bucket column + seed),
+   `GET /api/categories`, frontend fetch + bucket card/filter. Independently shippable.
+2. `feature/transactions-schema-and-import` — migration 006 (import_sources, import_batches,
+   transactions), mapper engine + 6 presets + fixtures, import/dedup endpoint.
+3. `feature/recurring-detection-engine` — detection + candidates/apply/undo endpoints.
+4. `feature/transaction-import-ui` — `TransactionImport.js` upload → map → review → apply flow.
+
+### Backlog (beyond the current feature)
+
+- **Admin page for category management** — add/rename/re-bucket/retire categories + colour
+  picker, CRUD over the `categories` table. Scoped after transaction import ships.
+- Per-bucket budget targets; bucket views in Cash Flow / Pay Cycle tabs.
+- Map Up's category taxonomy to app categories.
+- FK `entries.category` → `categories(id)` once the admin page lands.
+- Phase 2: transaction ledger view + actual-vs-budget reconciliation via `matched_entry_id`.
+- Existing `TODO.md` items from PRs #19/#20 (calendar-accurate summary, `nextDue`
+  advancement, `getCurrentCycleWindow` month-end bug, etc.).
