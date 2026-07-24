@@ -22,9 +22,21 @@ type Entry struct {
 	Type      string    `json:"type"`
 	Frequency string    `json:"frequency"`
 	Category  string    `json:"category"`
+	// Bucket is an optional per-entry override. nil / omitted means "inherit the
+	// category's default bucket"; a value places the entry in that bucket instead.
+	Bucket    *string   `json:"bucket"`
 	NextDue   string    `json:"nextDue"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
+// nullableStr maps an optional override string to a DB value: nil or empty →
+// SQL NULL (inherit), otherwise the string. lib/pq won't accept a raw *string.
+func nullableStr(p *string) interface{} {
+	if p == nil || *p == "" {
+		return nil
+	}
+	return *p
 }
 
 type Summary struct {
@@ -47,7 +59,7 @@ var freqMultiplier = map[string]float64{
 func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := mw.GetUserID(r)
 	rows, err := h.DB.Query(
-		`SELECT id, name, amount, type, frequency, category, next_due, created_at, updated_at
+		`SELECT id, name, amount, type, frequency, category, bucket, next_due, created_at, updated_at
 		 FROM entries WHERE user_id = $1 ORDER BY created_at ASC`, userID,
 	)
 	if err != nil {
@@ -60,9 +72,13 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e Entry
 		var nextDue time.Time
-		if err := rows.Scan(&e.ID, &e.Name, &e.Amount, &e.Type, &e.Frequency, &e.Category, &nextDue, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		var bucket sql.NullString
+		if err := rows.Scan(&e.ID, &e.Name, &e.Amount, &e.Type, &e.Frequency, &e.Category, &bucket, &nextDue, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			jsonError(w, "server error", http.StatusInternalServerError)
 			return
+		}
+		if bucket.Valid {
+			e.Bucket = &bucket.String
 		}
 		e.NextDue = nextDue.Format("2006-01-02")
 		entries = append(entries, e)
@@ -87,10 +103,10 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var id string
 	var nextDue time.Time
 	err := h.DB.QueryRow(
-		`INSERT INTO entries (user_id, name, amount, type, frequency, category, next_due)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)
+		`INSERT INTO entries (user_id, name, amount, type, frequency, category, bucket, next_due)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		 RETURNING id, next_due`,
-		userID, e.Name, e.Amount, e.Type, e.Frequency, e.Category, e.NextDue,
+		userID, e.Name, e.Amount, e.Type, e.Frequency, e.Category, nullableStr(e.Bucket), e.NextDue,
 	).Scan(&id, &nextDue)
 	if err != nil {
 		jsonError(w, "server error: "+err.Error(), http.StatusInternalServerError)
@@ -116,10 +132,10 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var nextDue time.Time
 	err := h.DB.QueryRow(
-		`UPDATE entries SET name=$1, amount=$2, type=$3, frequency=$4, category=$5, next_due=$6
-		 WHERE id=$7 AND user_id=$8
+		`UPDATE entries SET name=$1, amount=$2, type=$3, frequency=$4, category=$5, bucket=$6, next_due=$7
+		 WHERE id=$8 AND user_id=$9
 		 RETURNING id, next_due`,
-		e.Name, e.Amount, e.Type, e.Frequency, e.Category, e.NextDue, entryID, userID,
+		e.Name, e.Amount, e.Type, e.Frequency, e.Category, nullableStr(e.Bucket), e.NextDue, entryID, userID,
 	).Scan(&e.ID, &nextDue)
 	if err == sql.ErrNoRows {
 		jsonError(w, "entry not found", http.StatusNotFound)

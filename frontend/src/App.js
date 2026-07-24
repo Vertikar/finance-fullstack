@@ -7,7 +7,10 @@ import ImportModal from "./ImportModal";
 import PayCycle from "./PayCycle";
 import Budget from "./Budget";
 import UserSettings from "./UserSettings";
-import { toMonthly, buildCashFlow, sumActualForMonth, parseLocal, totalMonthlyBudgets } from "./utils";
+import {
+  toMonthly, buildCashFlow, sumActualForMonth, parseLocal, totalMonthlyBudgets,
+  CATEGORIES, CAT_COLORS, CAT_BUCKETS, BUCKET_META, BUCKET_ORDER,
+} from "./utils";
 
 // ── Frequency metadata ────────────────────────────────────────────────────────
 const FREQ_META = {
@@ -21,23 +24,10 @@ const FREQ_META = {
 const FREQUENCIES = Object.keys(FREQ_META);
 const FREQ_LABELS  = Object.fromEntries(FREQUENCIES.map(f => [f, FREQ_META[f].label]));
 
-// ── Categories ────────────────────────────────────────────────────────────────
-const CATEGORIES = {
-  income:  ["Salary", "Freelance", "Investment", "Rental", "Government", "Other Income"],
-  expense: [
-    "Housing", "Transport", "Food & Groceries", "Utilities", "Insurance",
-    "Health", "Entertainment", "Subscriptions", "Education", "Savings",
-    "Clothing", "Other",
-  ],
-};
-const CAT_COLORS = {
-  Salary: "#4ade80", Freelance: "#34d399", Investment: "#6ee7b7",
-  Rental: "#a7f3d0", Government: "#86efac", "Other Income": "#d1fae5",
-  Housing: "#f87171", Transport: "#fb923c", "Food & Groceries": "#fbbf24",
-  Utilities: "#a78bfa", Insurance: "#60a5fa", Health: "#f472b6",
-  Entertainment: "#c084fc", Subscriptions: "#22d3ee", Education: "#818cf8",
-  Savings: "#4ade80", Clothing: "#f9a8d4", Other: "#94a3b8",
-};
+// ── Categories & buckets ───────────────────────────────────────────────────────
+// CATEGORIES / CAT_COLORS / CAT_BUCKETS live in ./utils as the offline fallback.
+// At runtime the app fetches the authoritative list from GET /api/categories
+// (see loadCategories below) which also carries each category's bucket + colour.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 // toMonthly, buildCashFlow, sumActualForMonth and date helpers live in ./utils
@@ -48,7 +38,7 @@ const fmtFull = n => new Intl.NumberFormat("en-AU", { style: "currency", currenc
 
 const EMPTY_FORM = {
   name: "", amount: "", type: "expense",
-  frequency: "monthly", category: "Housing",
+  frequency: "monthly", category: "Housing", bucket: "",
   nextDue: new Date().toISOString().split("T")[0],
 };
 
@@ -128,12 +118,14 @@ export default function App() {
   const [user,       setUser]       = useState(getStoredUser);
   const [entries,    setEntries]    = useState([]);
   const [budgets,    setBudgets]    = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [tab,        setTab]        = useState("dashboard");
   const [modal,      setModal]      = useState(null);
   const [form,       setForm]       = useState(EMPTY_FORM);
   const [filterType, setFilterType] = useState("all");
   const [freqFilter, setFreqFilter] = useState("all");
+  const [bucketFilter, setBucketFilter] = useState("all");
   const [apiError,      setApiError]      = useState("");
   const [showImportModal, setShowImportModal] = useState(false);
   const [exportLoading,   setExportLoading]   = useState(false);
@@ -161,7 +153,20 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { if (user) { loadEntries(); loadBudgets(); } }, [user, loadEntries, loadBudgets]);
+  // Categories are global reference data. On failure we silently keep the
+  // built-in fallback constants so the UI still renders category pickers/colours.
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await api.getCategories();
+      if (Array.isArray(data)) setCategories(data);
+    } catch {
+      // fall back to CATEGORIES/CAT_COLORS/CAT_BUCKETS constants
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) { loadEntries(); loadBudgets(); loadCategories(); }
+  }, [user, loadEntries, loadBudgets, loadCategories]);
 
   function handleLogout() {
     localStorage.removeItem("finance_token");
@@ -193,6 +198,20 @@ export default function App() {
   const income   = entries.filter(e => e.type === "income");
   const expenses = entries.filter(e => e.type === "expense");
 
+  // ── Category / bucket lookups (DB-backed, with constant fallback) ────────────
+  const catMeta = {};
+  categories.forEach(c => { catMeta[c.name] = c; });
+  const colorOf  = (name, fb = "#94a3b8") => catMeta[name]?.color  || CAT_COLORS[name]  || fb;
+  const bucketOf = (name) => catMeta[name]?.bucket || CAT_BUCKETS[name] || "living";
+  // An entry's effective bucket: its own override wins, else the category's default.
+  const entryBucketOf = (e) => e.bucket || bucketOf(e.category);
+  const catOptions = categories.length
+    ? {
+        income:  categories.filter(c => c.type === "income").map(c => c.name),
+        expense: categories.filter(c => c.type === "expense").map(c => c.name),
+      }
+    : CATEGORIES;
+
   // Variable-expense budgets are flat monthly allowances folded into the
   // monthly-equivalent totals so "leftover" reflects planned variable spending.
   const monthlyBudgets  = totalMonthlyBudgets(budgets);
@@ -219,8 +238,27 @@ export default function App() {
     catTotals[b.category] = (catTotals[b.category] || 0) + (Number(b.amount) || 0);
   });
   const catData = Object.entries(catTotals)
-    .map(([name, value]) => ({ name, value: Math.round(value), color: CAT_COLORS[name] || "#94a3b8" }))
+    .map(([name, value]) => ({ name, value: Math.round(value), color: colorOf(name) }))
     .sort((a, b) => b.value - a.value);
+
+  // Bucket breakdown: fold each expense's monthly-equivalent into its EFFECTIVE
+  // bucket (per-entry override, else category default) — so two entries sharing a
+  // category but different overrides split correctly. Variable-expense budgets
+  // have no per-entry override, so they use their category's bucket. Income is
+  // reported separately (monthlyIncome); the donut shows only spending buckets.
+  const bucketTotals = {};
+  expenses.forEach(e => {
+    const b = entryBucketOf(e);
+    bucketTotals[b] = (bucketTotals[b] || 0) + toMonthly(e.amount, e.frequency);
+  });
+  budgets.forEach(b => {
+    const bk = bucketOf(b.category);
+    bucketTotals[bk] = (bucketTotals[bk] || 0) + (Number(b.amount) || 0);
+  });
+  const bucketData = BUCKET_ORDER
+    .filter(b => b !== "income")
+    .map(b => ({ name: BUCKET_META[b].label, value: Math.round(bucketTotals[b] || 0), color: BUCKET_META[b].color }))
+    .filter(d => d.value > 0);
 
   const rhythmTotals = {};
   expenses.forEach(e => {
@@ -242,8 +280,9 @@ export default function App() {
   });
 
   const listEntries = entries.filter(e =>
-    (filterType === "all" || e.type      === filterType) &&
-    (freqFilter  === "all" || e.frequency === freqFilter)
+    (filterType   === "all" || e.type      === filterType) &&
+    (freqFilter   === "all" || e.frequency === freqFilter) &&
+    (bucketFilter === "all" || entryBucketOf(e) === bucketFilter)
   );
 
   function daysLabel(dateStr) {
@@ -254,11 +293,11 @@ export default function App() {
   }
 
   function openAdd()   { setForm({ ...EMPTY_FORM, nextDue: new Date().toISOString().split("T")[0] }); setModal("add"); }
-  function openEdit(e) { setForm({ ...e }); setModal("edit"); }
+  function openEdit(e) { setForm({ ...e, bucket: e.bucket ?? "" }); setModal("edit"); }
 
   async function saveEntry() {
     if (!form.name.trim() || !form.amount) return;
-    const payload = { ...form, amount: parseFloat(form.amount) };
+    const payload = { ...form, amount: parseFloat(form.amount), bucket: form.bucket || null };
     try {
       if (modal === "add") {
         const created = await api.createEntry(payload);
@@ -523,7 +562,7 @@ export default function App() {
                     <span style={{ ...S.label, color: T.accent }}>Upcoming · 60 days</span>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {upcoming.slice(0, isMobile ? 6 : 9).map((e, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: T.bgInner, borderRadius: 8, borderLeft: `3px solid ${CAT_COLORS[e.category] || "#4a4f6a"}` }}>
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: T.bgInner, borderRadius: 8, borderLeft: `3px solid ${colorOf(e.category, "#4a4f6a")}` }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                               <span style={{ fontSize: 14 }}>{e.name}</span>
@@ -568,6 +607,51 @@ export default function App() {
                     </div>
                   </div>
 
+                </div>
+
+                {/* Spending by Bucket */}
+                <div style={S.card}>
+                  <span style={{ ...S.label, color: T.accent }}>Spending by Bucket / Month</span>
+                  {bucketData.length === 0 ? (
+                    <div style={{ color: T.textMuted, fontSize: 13, textAlign: "center", padding: 12 }}>No expenses yet</div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "160px 1fr", gap: isMobile ? 8 : 20, alignItems: "center" }}>
+                      <ResponsiveContainer width="100%" height={isMobile ? 130 : 150}>
+                        <PieChart>
+                          <Pie data={bucketData} cx="50%" cy="50%" innerRadius={isMobile ? 36 : 42} outerRadius={isMobile ? 58 : 66} dataKey="value" paddingAngle={2} strokeWidth={0}>
+                            {bucketData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                          </Pie>
+                          <Tooltip formatter={v => [fmt(v), "Monthly"]} contentStyle={{ background: T.tooltipBg, border: `1px solid ${T.tooltipBorder}`, borderRadius: 8, ...S.mono, fontSize: 11, color: T.text }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {bucketData.map(b => {
+                          const pct = monthlyExpenses > 0 ? (b.value / monthlyExpenses) * 100 : 0;
+                          return (
+                            <div key={b.name}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ width: 8, height: 8, borderRadius: 2, background: b.color }} />
+                                  <span style={{ ...S.mono, fontSize: 10, color: T.textMid }}>{b.name}</span>
+                                </div>
+                                <span style={{ ...S.mono, fontSize: 10, color: T.text }}>{fmt(b.value)}<span style={{ color: T.textMuted }}> · {pct.toFixed(0)}%</span></span>
+                              </div>
+                              <div style={{ background: T.bgSubtle, borderRadius: 3, height: 4, overflow: "hidden" }}>
+                                <div style={{ height: "100%", width: `${pct}%`, background: b.color + "88", borderRadius: 3 }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2, paddingTop: 8, borderTop: `1px solid ${T.border2}` }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: BUCKET_META.income.color }} />
+                            <span style={{ ...S.mono, fontSize: 10, color: T.textMid }}>{BUCKET_META.income.label}</span>
+                          </div>
+                          <span style={{ ...S.mono, fontSize: 10, color: T.income }}>{fmt(monthlyIncome)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -629,6 +713,30 @@ export default function App() {
                   })}
                 </div>
 
+                {/* Bucket filter */}
+                <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ ...S.mono, fontSize: 9, color: T.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Bucket:</span>
+                  <button onClick={() => setBucketFilter("all")} style={{
+                    borderRadius: 5, padding: "3px 10px", ...S.mono, fontSize: 9, letterSpacing: 1, textTransform: "uppercase",
+                    cursor: "pointer", border: `1px solid ${T.border2}`,
+                    background: bucketFilter === "all" ? T.bgSubtle : "transparent",
+                    color: bucketFilter === "all" ? T.text : T.textMuted,
+                  }}>All</button>
+                  {BUCKET_ORDER.map(b => {
+                    const active = bucketFilter === b;
+                    const meta   = BUCKET_META[b];
+                    return (
+                      <button key={b} onClick={() => setBucketFilter(b)} style={{
+                        borderRadius: 5, padding: "3px 10px", ...S.mono, fontSize: 9, letterSpacing: 1, textTransform: "uppercase",
+                        cursor: "pointer", border: "1px solid",
+                        background:  active ? meta.color + "22" : "transparent",
+                        color:       active ? meta.color         : T.textMuted,
+                        borderColor: active ? meta.color + "55" : T.border2,
+                      }}>{meta.label}</button>
+                    );
+                  })}
+                </div>
+
                 {/* Entry list */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {listEntries.length === 0 && (
@@ -637,7 +745,7 @@ export default function App() {
                   {listEntries.map(e => (
                     <div key={e.id} style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 11, padding: "12px 14px" }}>
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                        <div style={{ width: 4, height: 44, borderRadius: 3, background: CAT_COLORS[e.category] || "#4a4f6a", flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ width: 4, height: 44, borderRadius: 3, background: colorOf(e.category, "#4a4f6a"), flexShrink: 0, marginTop: 2 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
                             <span style={{ fontSize: 15, color: T.text }}>{e.name}</span>
@@ -704,7 +812,7 @@ export default function App() {
                         {evts.map((e, i) => (
                           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: T.bgInner, borderRadius: 7, flexWrap: isMobile ? "wrap" : "nowrap", gap: 6 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
-                              <div style={{ width: 7, height: 7, borderRadius: "50%", background: CAT_COLORS[e.category] || "#4a4f6a", flexShrink: 0 }} />
+                              <div style={{ width: 7, height: 7, borderRadius: "50%", background: colorOf(e.category, "#4a4f6a"), flexShrink: 0 }} />
                               <span style={{ fontSize: 14, color: T.text }}>{e.name}</span>
                               <FreqBadge freq={e.frequency} />
                               <span style={{ ...S.mono, fontSize: 9, color: T.textMuted }}>{e.dueStr}</span>
@@ -815,9 +923,16 @@ export default function App() {
                 <div>
                   <span style={S.label}>Category</span>
                   <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-                    {(CATEGORIES[form.type] || []).map(c => <option key={c} value={c}>{c}</option>)}
+                    {(catOptions[form.type] || []).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+              </div>
+              <div>
+                <span style={S.label}>Bucket</span>
+                <select value={form.bucket} onChange={e => setForm(f => ({ ...f, bucket: e.target.value }))}>
+                  <option value="">Inherit from category ({BUCKET_META[bucketOf(form.category)]?.label || "—"})</option>
+                  {BUCKET_ORDER.map(b => <option key={b} value={b}>{BUCKET_META[b].label}</option>)}
+                </select>
               </div>
               <div>
                 <span style={S.label}>Next Due Date</span>

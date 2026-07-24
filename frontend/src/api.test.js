@@ -123,6 +123,20 @@ describe('api.deleteEntry', () => {
   });
 });
 
+describe('api.getCategories', () => {
+  test('calls the /api/categories endpoint with the auth header', async () => {
+    localStorageMock.getItem.mockReturnValueOnce('tok-123');
+    mockFetch.mockReturnValueOnce(
+      jsonResponse([{ id: 'c1', name: 'Salary', type: 'income', bucket: 'income', color: '#4ade80', sort_order: 10 }])
+    );
+    const result = await api.getCategories();
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/categories');
+    expect(opts.headers['Authorization']).toBe('Bearer tok-123');
+    expect(result[0].bucket).toBe('income');
+  });
+});
+
 describe('api.getBudgets', () => {
   test('calls the /api/budgets endpoint', async () => {
     mockFetch.mockReturnValueOnce(jsonResponse([]));

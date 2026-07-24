@@ -116,6 +116,12 @@ transaction↔bucket pairings are user decisions, not derived constants:
   a different bucket. Effective bucket = `COALESCE(transactions.bucket, category.bucket)`.
   Example from the sample: Frollo itself files one-off "Savings"-category rows under different
   buckets depending on context — the override preserves that flexibility.
+- `entries.bucket` (same CHECK, `NULL` allowed) is the **per-entry override**, symmetric with
+  the transaction override: `NULL` = inherit the category's bucket; a value places the entry in
+  a bucket that may differ from its category's default. Effective bucket =
+  `COALESCE(entries.bucket, category.bucket)`. Editable in the Add/Edit entry modal.
+  *(Shipped in PR #26 via migration `006_add_entry_bucket`; supersedes the earlier
+  "no schema change to `entries`" note.)*
 
 **Import.** The Frollo preset stores `budget_category` into `bucket_raw` and uses it to
 pre-fill the per-transaction bucket where it disagrees with the assigned category's default
@@ -136,7 +142,9 @@ $X/month"), bucket view in Cash Flow and Pay Cycle tabs.
 
 ## 4. Data model
 
-Migrations `005_create_categories.up/down.sql` and `006_create_transactions.up/down.sql`:
+Migrations `005_create_categories.up/down.sql`, `006_add_entry_bucket.up/down.sql` (the per-entry
+bucket override, shipped in PR #26), and `007_create_transactions.up/down.sql` (renumbered from 006
+now that 006 is taken):
 
 ```sql
 -- 005: categories + buckets
@@ -153,7 +161,7 @@ CREATE TABLE categories (
 -- entries.category keeps its TEXT form for now (no FK) to avoid a risky data
 -- migration; admin-page feature can tighten this later.
 
--- 006: import machinery
+-- 007: import machinery
 CREATE TABLE import_sources (
     id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

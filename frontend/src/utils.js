@@ -24,6 +24,40 @@ export const CAT_COLORS = {
   "Savings": "#4ade80", "Clothing": "#f9a8d4", "Other": "#94a3b8",
 };
 
+// Buckets are the higher-level grouping (income/living/lifestyle/goals) that
+// entries inherit via their category. The authoritative mapping is DB-backed
+// (GET /api/categories); this constant mirrors the seed for the 18 built-in
+// categories so the bucket views still render when the fetch is unavailable.
+export const CAT_BUCKETS = {
+  "Salary": "income", "Freelance": "income", "Investment": "income",
+  "Rental": "income", "Government": "income", "Other Income": "income",
+  "Housing": "living", "Transport": "living", "Food & Groceries": "living",
+  "Utilities": "living", "Insurance": "living", "Health": "living",
+  "Education": "living", "Other": "living",
+  "Entertainment": "lifestyle", "Subscriptions": "lifestyle", "Clothing": "lifestyle",
+  "Savings": "goals",
+};
+
+// Display metadata for the four buckets — label, accent colour, and the order
+// they appear in breakdowns and filters. Gold (#c4a24a) accents goals to match
+// the dark-luxury palette; the rest use muted, distinct tones.
+export const BUCKET_META = {
+  income:    { label: "Income",    color: "#4ade80" },
+  living:    { label: "Living",    color: "#60a5fa" },
+  lifestyle: { label: "Lifestyle", color: "#c084fc" },
+  goals:     { label: "Goals",     color: "#c4a24a" },
+};
+export const BUCKET_ORDER = ["living", "lifestyle", "goals", "income"];
+
+/**
+ * Resolve an entry's effective bucket. An entry's own `bucket` is an optional
+ * override; when absent it inherits its category's bucket from `catBucketMap`
+ * (name → bucket, built from the fetched categories), falling back to "living".
+ */
+export function entryBucket(entry, catBucketMap = {}) {
+  return entry.bucket || catBucketMap[entry.category] || "living";
+}
+
 /**
  * Convert a payment amount to its monthly equivalent.
  * biannual = every 6 months = 2 payments/year → amount / 6

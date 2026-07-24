@@ -46,7 +46,7 @@ func TestList_ReturnsEmptyArray(t *testing.T) {
 	h, mock := newEntriesHandler(t)
 	mock.ExpectQuery(`SELECT .* FROM entries WHERE user_id`).
 		WithArgs("user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "next_due", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "bucket", "next_due", "created_at", "updated_at"}))
 
 	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/entries", nil), "user-1")
 	rr := httptest.NewRecorder()
@@ -65,10 +65,10 @@ func TestList_ReturnsEmptyArray(t *testing.T) {
 func TestList_ReturnsEntries(t *testing.T) {
 	h, mock := newEntriesHandler(t)
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "next_due", "created_at", "updated_at"}).
-		AddRow("e1", "Rent", 1800.00, "expense", "monthly", "Housing", now, now, now).
-		AddRow("e2", "Salary", 5500.00, "income", "monthly", "Salary", now, now, now).
-		AddRow("e3", "Rego", 900.00, "expense", "biannual", "Transport", now, now, now)
+	rows := sqlmock.NewRows([]string{"id", "name", "amount", "type", "frequency", "category", "bucket", "next_due", "created_at", "updated_at"}).
+		AddRow("e1", "Rent", 1800.00, "expense", "monthly", "Housing", "goals", now, now, now). // explicit bucket override
+		AddRow("e2", "Salary", 5500.00, "income", "monthly", "Salary", nil, now, now, now).      // NULL → inherit
+		AddRow("e3", "Rego", 900.00, "expense", "biannual", "Transport", nil, now, now, now)
 
 	mock.ExpectQuery(`SELECT .* FROM entries WHERE user_id`).
 		WithArgs("user-1").WillReturnRows(rows)
@@ -87,6 +87,13 @@ func TestList_ReturnsEntries(t *testing.T) {
 	}
 	if result[2].Frequency != "biannual" {
 		t.Errorf("expected biannual frequency, got %q", result[2].Frequency)
+	}
+	// Bucket override: e1 has an explicit bucket, e2's NULL inherits (nil).
+	if result[0].Bucket == nil || *result[0].Bucket != "goals" {
+		t.Errorf("expected e1 bucket override 'goals', got %v", result[0].Bucket)
+	}
+	if result[1].Bucket != nil {
+		t.Errorf("expected e2 bucket nil (inherit), got %q", *result[1].Bucket)
 	}
 }
 
@@ -130,6 +137,30 @@ func TestCreate_BiannualEntry(t *testing.T) {
 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("want 201 for biannual entry, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreate_WithBucketOverride(t *testing.T) {
+	h, mock := newEntriesHandler(t)
+	now := time.Now()
+	mock.ExpectQuery(`INSERT INTO entries`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "next_due"}).AddRow("ov-id", now))
+
+	bucket := "goals"
+	payload := handlers.Entry{Name: "Extra Mortgage", Amount: 500.00, Type: "expense", Frequency: "monthly", Category: "Housing", Bucket: &bucket, NextDue: "2026-06-01"}
+	body, _ := json.Marshal(payload)
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/entries", bytes.NewReader(body)), "user-1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var result handlers.Entry
+	json.NewDecoder(rr.Body).Decode(&result)
+	if result.Bucket == nil || *result.Bucket != "goals" {
+		t.Errorf("expected bucket override 'goals' echoed back, got %v", result.Bucket)
 	}
 }
 
