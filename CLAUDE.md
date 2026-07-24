@@ -68,7 +68,7 @@ cd frontend && npx react-scripts test utils.test.js --watchAll=false
 
 ### Data model
 
-`Entry` has: `id` (uuid), `name`, `amount`, `type` (`income`|`expense`), `frequency` (one of 6 values), `category`, `nextDue` (date string).
+`Entry` has: `id` (uuid), `name`, `amount`, `type` (`income`|`expense`), `frequency` (one of 6 values), `category`, `bucket` (optional per-entry override; `null` = inherit the category's default bucket), `nextDue` (date string).
 
 All six frequencies are enforced by a DB constraint and mirrored in `freqMultiplier` (Go) and `FREQ_META` (JS). When adding a new frequency, update both, the DB constraint (new migration), and `utils.js`.
 
@@ -119,16 +119,18 @@ area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the
   `chore/rename-go-module`). Mechanical module-path correction (no behaviour change). Merge first;
   it is the base for PR #26.
 - **PR #26 open** — `feat: DB-backed categories with buckets grouping` (branch
-  `feature/categories-and-buckets`, stacked on #25). Phase 1 of the transaction-import feature:
+  `feature/categories-and-buckets`; #25 now merged). Phase 1 of the transaction-import feature:
   migration 005 (global `categories` table + bucket column + seed), `GET /api/categories`,
-  frontend fetch with constant fallback, Overview bucket card + Payments bucket filter.
-  Migration verified against a real Postgres. **Awaiting manual local verification, then merge.**
+  frontend fetch with constant fallback, Overview bucket card + Payments bucket filter. Also adds
+  migration 006 (`entries.bucket` per-entry override) so an entry's bucket can differ from its
+  category's default, with a Bucket dropdown in the Add/Edit modal. Migrations verified against a
+  real Postgres. **Awaiting manual local verification, then merge.**
 - Follow-ups from merged PRs live in `TODO.md` (from PRs #19/#20, plus #26's deferred bucket/admin
   items).
 
 ### Next feature: transaction import, recurring detection & buckets
 
-Fully scoped (see `transaction-import-feature-scope.md`, v2). Summary: import raw
+Fully scoped (see [`docs/transaction-import-feature-scope.md`](./docs/transaction-import-feature-scope.md), v2.1). Summary: import raw
 bank-transaction CSVs, detect recurring merchant+amount+interval patterns, and let the user
 approve them into `entries`. Validated against a real 3,112-row Frollo export — detection
 cleanly identifies mortgage (fortnightly, stdev 0.3d), Telstra, Disney+, RACV, AWS, etc.
@@ -159,7 +161,7 @@ Planned branches, in order (each with its own PR):
 1. `feature/categories-and-buckets` — migration 005 (categories + bucket column + seed),
    `GET /api/categories`, frontend fetch + bucket card/filter. Independently shippable.
    **→ PR #26 (open, stacked on the #25 module rename).**
-2. `feature/transactions-schema-and-import` — migration 006 (import_sources, import_batches,
+2. `feature/transactions-schema-and-import` — migration 007 (import_sources, import_batches,
    transactions), mapper engine + 6 presets + fixtures, import/dedup endpoint.
 3. `feature/recurring-detection-engine` — detection + candidates/apply/undo endpoints.
 4. `feature/transaction-import-ui` — `TransactionImport.js` upload → map → review → apply flow.

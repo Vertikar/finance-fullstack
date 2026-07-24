@@ -38,7 +38,7 @@ const fmtFull = n => new Intl.NumberFormat("en-AU", { style: "currency", currenc
 
 const EMPTY_FORM = {
   name: "", amount: "", type: "expense",
-  frequency: "monthly", category: "Housing",
+  frequency: "monthly", category: "Housing", bucket: "",
   nextDue: new Date().toISOString().split("T")[0],
 };
 
@@ -203,6 +203,8 @@ export default function App() {
   categories.forEach(c => { catMeta[c.name] = c; });
   const colorOf  = (name, fb = "#94a3b8") => catMeta[name]?.color  || CAT_COLORS[name]  || fb;
   const bucketOf = (name) => catMeta[name]?.bucket || CAT_BUCKETS[name] || "living";
+  // An entry's effective bucket: its own override wins, else the category's default.
+  const entryBucketOf = (e) => e.bucket || bucketOf(e.category);
   const catOptions = categories.length
     ? {
         income:  categories.filter(c => c.type === "income").map(c => c.name),
@@ -239,13 +241,19 @@ export default function App() {
     .map(([name, value]) => ({ name, value: Math.round(value), color: colorOf(name) }))
     .sort((a, b) => b.value - a.value);
 
-  // Bucket breakdown: fold each category's monthly-equivalent expense total into
-  // its bucket. Income is reported separately (monthlyIncome), so the donut shows
-  // only the spending buckets (living / lifestyle / goals).
+  // Bucket breakdown: fold each expense's monthly-equivalent into its EFFECTIVE
+  // bucket (per-entry override, else category default) — so two entries sharing a
+  // category but different overrides split correctly. Variable-expense budgets
+  // have no per-entry override, so they use their category's bucket. Income is
+  // reported separately (monthlyIncome); the donut shows only spending buckets.
   const bucketTotals = {};
-  Object.entries(catTotals).forEach(([name, value]) => {
-    const b = bucketOf(name);
-    bucketTotals[b] = (bucketTotals[b] || 0) + value;
+  expenses.forEach(e => {
+    const b = entryBucketOf(e);
+    bucketTotals[b] = (bucketTotals[b] || 0) + toMonthly(e.amount, e.frequency);
+  });
+  budgets.forEach(b => {
+    const bk = bucketOf(b.category);
+    bucketTotals[bk] = (bucketTotals[bk] || 0) + (Number(b.amount) || 0);
   });
   const bucketData = BUCKET_ORDER
     .filter(b => b !== "income")
@@ -274,7 +282,7 @@ export default function App() {
   const listEntries = entries.filter(e =>
     (filterType   === "all" || e.type      === filterType) &&
     (freqFilter   === "all" || e.frequency === freqFilter) &&
-    (bucketFilter === "all" || bucketOf(e.category) === bucketFilter)
+    (bucketFilter === "all" || entryBucketOf(e) === bucketFilter)
   );
 
   function daysLabel(dateStr) {
@@ -285,11 +293,11 @@ export default function App() {
   }
 
   function openAdd()   { setForm({ ...EMPTY_FORM, nextDue: new Date().toISOString().split("T")[0] }); setModal("add"); }
-  function openEdit(e) { setForm({ ...e }); setModal("edit"); }
+  function openEdit(e) { setForm({ ...e, bucket: e.bucket ?? "" }); setModal("edit"); }
 
   async function saveEntry() {
     if (!form.name.trim() || !form.amount) return;
-    const payload = { ...form, amount: parseFloat(form.amount) };
+    const payload = { ...form, amount: parseFloat(form.amount), bucket: form.bucket || null };
     try {
       if (modal === "add") {
         const created = await api.createEntry(payload);
@@ -918,6 +926,13 @@ export default function App() {
                     {(catOptions[form.type] || []).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+              </div>
+              <div>
+                <span style={S.label}>Bucket</span>
+                <select value={form.bucket} onChange={e => setForm(f => ({ ...f, bucket: e.target.value }))}>
+                  <option value="">Inherit from category ({BUCKET_META[bucketOf(form.category)]?.label || "—"})</option>
+                  {BUCKET_ORDER.map(b => <option key={b} value={b}>{BUCKET_META[b].label}</option>)}
+                </select>
               </div>
               <div>
                 <span style={S.label}>Next Due Date</span>

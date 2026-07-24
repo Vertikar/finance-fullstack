@@ -1,6 +1,20 @@
 import { toMonthly, addFreq, fmt, fmtFull, savingsRate, buildCashFlow,
          prevFreq, getCurrentCycleWindow, getExpensesDueInCycle,
-         sumActualForMonth, totalMonthlyBudgets } from './utils';
+         sumActualForMonth, totalMonthlyBudgets, entryBucket } from './utils';
+
+// ─── entryBucket ───────────────────────────────────────────────────────────────
+
+describe('entryBucket', () => {
+  const catMap = { Housing: 'living', Restaurants: 'lifestyle' };
+  test('override wins over category default', () =>
+    expect(entryBucket({ category: 'Housing', bucket: 'goals' }, catMap)).toBe('goals'));
+  test('inherits category bucket when no override', () =>
+    expect(entryBucket({ category: 'Restaurants' }, catMap)).toBe('lifestyle'));
+  test('empty-string override inherits from category', () =>
+    expect(entryBucket({ category: 'Housing', bucket: '' }, catMap)).toBe('living'));
+  test('falls back to living for unknown category', () =>
+    expect(entryBucket({ category: 'Nonexistent' }, catMap)).toBe('living'));
+});
 
 // ─── totalMonthlyBudgets ───────────────────────────────────────────────────────
 

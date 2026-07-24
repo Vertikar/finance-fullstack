@@ -50,6 +50,15 @@ export const BUCKET_META = {
 export const BUCKET_ORDER = ["living", "lifestyle", "goals", "income"];
 
 /**
+ * Resolve an entry's effective bucket. An entry's own `bucket` is an optional
+ * override; when absent it inherits its category's bucket from `catBucketMap`
+ * (name → bucket, built from the fetched categories), falling back to "living".
+ */
+export function entryBucket(entry, catBucketMap = {}) {
+  return entry.bucket || catBucketMap[entry.category] || "living";
+}
+
+/**
  * Convert a payment amount to its monthly equivalent.
  * biannual = every 6 months = 2 payments/year → amount / 6
  */
