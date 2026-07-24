@@ -1,6 +1,6 @@
 # Feature scope: Transaction import, recurring-entry detection & buckets
 
-Status: **v2 — decisions incorporated** · 2026-07-21
+Status: **v2.1 — decisions incorporated (buckets freely assignable)** · 2026-07-24
 Validated against: `frollo transactions_20260603.csv` (3,112 rows, CommBank/Up/ubank, Jun 2025–Jun 2026)
 
 ## 0. Decisions log (from review)
