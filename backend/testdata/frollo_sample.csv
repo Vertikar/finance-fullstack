@@ -1,0 +1,13 @@
+transaction_id,transaction_date,description,amount,currency,account_name,provider_name,category_name,budget_category,transaction_type,included,balance,notes
+t-0001,2026-01-15,Disney Plus Aus,-20.99,AUD,Everyday Account,Example Bank,Subscriptions/Renewals,lifestyle,debit,true,1420.11,
+t-0002,2026-02-15,Disney Plus Aus,-20.99,AUD,Everyday Account,Example Bank,Subscriptions/Renewals,lifestyle,debit,true,1399.12,
+t-0003,2026-03-15,Disney Plus Aus,-20.99,AUD,Everyday Account,Example Bank,Subscriptions/Renewals,lifestyle,debit,true,1378.13,
+t-0004,2026-03-16,"Example Grocer, Southbank",-84.20,AUD,Everyday Account,Example Bank,Groceries,living,debit,true,1293.93,quoted comma in description
+t-0005,2026-03-17,Salary Example Pty Ltd,4210.55,AUD,Everyday Account,Example Bank,Salary/Regular Income,income,credit,true,5504.48,
+t-0006,2026-03-18,Transfer to Savings,-500.00,AUD,Everyday Account,Example Bank,Transfer Between Accounts,goals,transfer_outgoing,true,5004.48,excluded from detection later
+t-0007,2026-03-18,Round Up Transfer,-0.45,AUD,Everyday Account,Example Bank,Round Up,goals,debit,true,5004.03,micro amount
+t-0008,2026-03-19,Interest Charged,-12.30,AUD,Everyday Account,Example Bank,Service Charges/Fees,living,interest_charged,true,4991.73,
+t-0009,2026-03-20,Example Cafe,-5.50,AUD,Everyday Account,Example Bank,Cafes & Coffee,lifestyle,debit,false,4986.23,source marked it excluded
+t-0010,2026-03-21,Loan Repayment LN REPAY 885202194,"-$1,823.00",AUD,Everyday Account,Example Bank,Mortgage,living,debit,true,3163.23,decorated amount
+t-0011,2026-03-22,Refund Example Store,15.00,AUD,Everyday Account,Example Bank,Refunds/Adjustments,income,credit,true,3178.23,
+t-0012,2026-03-23,Extra Mortgage Payment,-60.00,AUD,Everyday Account,Example Bank,Savings,lifestyle,debit,true,3118.23,bucket_raw disagrees with category default

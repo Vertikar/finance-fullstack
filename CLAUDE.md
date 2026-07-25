@@ -50,6 +50,8 @@ cd frontend && npx react-scripts test utils.test.js --watchAll=false
 - `handlers/auth.go` — `POST /api/auth/register` and `POST /api/auth/login`, bcrypt passwords, returns JWT.
 - `handlers/entries.go` — full CRUD for `Entry` records plus `GET /api/entries/summary` which computes monthly-equivalent totals using `freqMultiplier`. All routes are user-scoped via `mw.GetUserID(r)`.
 - `handlers/import_export.go` — `GET /api/entries/export` (CSV download) and `POST /api/entries/import` (multipart CSV upload).
+- `handlers/transactions_import.go` — `POST /api/transactions/import`, ingests raw bank-statement CSVs into `transactions`. Resolves a column mapping (inline `column_map` → `source_id` → auto-detect from the header), inserts the batch and its rows in one transaction, and treats re-imported rows as duplicates via `ON CONFLICT` on `(user_id, external_id)`.
+- `importer/` — pure CSV-mapping logic with no HTTP or DB dependencies: `ColumnMap`/`MapRow`, preset auto-detection, description normalisation, the `external_id` dedup hash, and date/amount parsing. Kept separate so it is unit-testable directly and reusable by the upcoming recurring-detection phase.
 - `handlers/settings.go` — `GET/PUT /api/settings/pay-cycle` for per-user pay cycle preferences.
 - `middleware/auth.go` — JWT validation middleware; exposes `GetUserID(r)` to extract the claim.
 - `migrations/` — embedded into the binary via `//go:embed`; applied automatically on startup using `golang-migrate`. Files follow `{NNN}_{title}.{up|down}.sql` naming.
@@ -109,24 +111,24 @@ area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the
 
 ### Current state
 
-- `main` is green. Last merge: PR #20 (payment-frequency date edge cases) + PR #22
-  (branch-naming docs), 2026-06-23.
+- `main` is green through migration 006. Recent merges: **PR #25** (Go module rename to
+  `github.com/vertikar/finance-api`), **PR #27** (v2.1 scope doc under `docs/`), and **PR #26**
+  (`feat: DB-backed categories with buckets grouping` — migration 005 global `categories` table +
+  seed, `GET /api/categories`, frontend fetch with constant fallback, Overview bucket card +
+  Payments bucket filter, plus migration 006 `entries.bucket` per-entry override with a Bucket
+  dropdown in the Add/Edit modal).
 - **PR #23 open** — `test: expand backend and frontend coverage for error paths and untested
   logic` (branch `claude/test-coverage-analysis-ggvi5h`). No production behaviour changes
   except a `validateJWTSecret()` testability refactor in `main.go`. **Awaiting Henrik's manual
   test on the local deployment, then merge.**
-- **PR #25 open** — `chore: rename Go module to github.com/vertikar/finance-api` (branch
-  `chore/rename-go-module`). Mechanical module-path correction (no behaviour change). Merge first;
-  it is the base for PR #26.
-- **PR #26 open** — `feat: DB-backed categories with buckets grouping` (branch
-  `feature/categories-and-buckets`; #25 now merged). Phase 1 of the transaction-import feature:
-  migration 005 (global `categories` table + bucket column + seed), `GET /api/categories`,
-  frontend fetch with constant fallback, Overview bucket card + Payments bucket filter. Also adds
-  migration 006 (`entries.bucket` per-entry override) so an entry's bucket can differ from its
-  category's default, with a Bucket dropdown in the Add/Edit modal. Migrations verified against a
-  real Postgres. **Awaiting manual local verification, then merge.**
+- **Branch 2 open** — `feat: transactions schema and CSV import` (branch
+  `feature/transactions-schema-and-import`). Migration 007 (`import_sources`, `import_batches`,
+  `transactions`), the `importer/` mapping package, and `POST /api/transactions/import` with
+  hash-based dedup. Backend-only; Frollo preset only (see the scope doc §7 for why the other five
+  are deferred). Migration verified against a real Postgres. **Awaiting manual local
+  verification, then merge.**
 - Follow-ups from merged PRs live in `TODO.md` (from PRs #19/#20, plus #26's deferred bucket/admin
-  items).
+  items and Branch 2's deferred bank presets).
 
 ### Next feature: transaction import, recurring detection & buckets
 
@@ -159,10 +161,12 @@ Key decisions (agreed 2026-07-23):
 Planned branches, in order (each with its own PR):
 
 1. `feature/categories-and-buckets` — migration 005 (categories + bucket column + seed),
-   `GET /api/categories`, frontend fetch + bucket card/filter. Independently shippable.
-   **→ PR #26 (open, stacked on the #25 module rename).**
+   `GET /api/categories`, frontend fetch + bucket card/filter, plus migration 006
+   (`entries.bucket` override). **→ PR #26, merged.**
 2. `feature/transactions-schema-and-import` — migration 007 (import_sources, import_batches,
-   transactions), mapper engine + 6 presets + fixtures, import/dedup endpoint.
+   transactions), `importer/` mapper engine + Frollo preset + fixture, import/dedup endpoint.
+   **→ open.** The other five bank presets are deferred until real exports are available;
+   adding one is an `import_sources` row, not a code change.
 3. `feature/recurring-detection-engine` — detection + candidates/apply/undo endpoints.
 4. `feature/transaction-import-ui` — `TransactionImport.js` upload → map → review → apply flow.
 
