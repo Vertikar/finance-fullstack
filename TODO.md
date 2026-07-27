@@ -23,7 +23,16 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] Refactor `import_export.go`'s inline date parsing to use `importer.ParseDate` — the entries importer still has its own nested if/else version accepting a narrower set of formats #backend #pr-28
 - [ ] `backend/testdata/finance.csv` is dead weight: it duplicates the `seedCSV` const in `fixtures_test.go` byte-for-byte and nothing reads it, so the two can drift silently. Either wire the tests to read the file or delete it #backend #pr-28
 - [ ] `GET/POST /api/import-sources` for managing user-level saved column maps (built-in presets stay read-only) — schema supports it via the nullable `import_sources.user_id` #backend #pr-28
+- [ ] Upgrade the bank-statement hint in `ImportModal` from static text into a button that opens the transaction importer, once `TransactionImport.js` exists (it currently explains the distinction but can't link anywhere) #frontend #pr-30
+- [ ] `.env` is tracked in git despite the README's "Never commit `.env`" — untrack it, add it to `.gitignore`, and rotate the committed `DB_PASSWORD` / `JWT_SECRET` #chore #pr-33
+- [ ] Write backups to a `backups/` directory rather than the project root #devex #pr-33
+- [ ] `COMMENT ON EXTENSION "uuid-ossp"` requires extension ownership, so under `ON_ERROR_STOP=1` a restore run as a non-owner role would abort. Add `--no-comments` to `make backup` if that ever bites #backend #pr-33
+- [ ] `restore` drops schema `public` in a separate transaction from the load, so a backup that passes validation but still fails to load (disk full, permissions) leaves an empty schema. Closing the gap needs the drop inside the load's transaction — `pg_restore --clean --if-exists --single-transaction`, which only drops objects present in the archive #devex #pr-34
+- [ ] Fail fast on migration errors instead of crash-looping, and make the error message name both versions (issue 1, items 1–2) #backend
+- [ ] CI check for migration hygiene — up/down parity, contiguous versions, up→down→up round-trip (issue 2) #ci #backend
 
 ### In Progress
 
 ### Done ✓
+
+- [x] Refuse a restore when the dump's `schema_migrations` version is ahead of the migrations embedded in the API binary, instead of leaving it to `make db-version` after the fact. Hit for real: restoring a version-7 backup onto a build embedding `001`–`006` crash-looped the API and returned 502s to the login form #devex #pr-34

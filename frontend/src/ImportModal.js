@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { api } from "./api";
 import { THEMES } from "./themes";
+import { looksLikeBankStatement } from "./utils";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const REQUIRED_COLS   = ["name", "amount", "type", "frequency", "category", "next_due"];
@@ -95,6 +96,14 @@ export default function ImportModal({ onClose, onImported, T: TProp, themeKey = 
       borderRadius: 8, padding: "10px 14px",
       fontFamily: mono, fontSize: 11, color: T.expense, marginTop: 12,
     },
+    // Guidance, not a failure — deliberately muted rather than red so it reads
+    // as an explanation of the error above it.
+    hintBox: {
+      background: T.bgSubtle, border: `1px solid ${T.border2}`,
+      borderRadius: 8, padding: "10px 14px",
+      fontFamily: mono, fontSize: 11, color: T.textMid, marginTop: 8,
+      lineHeight: 1.6,
+    },
     btn: {
       cancel: {
         flex: 1, background: T.bgSubtle, border: `1px solid ${T.border2}`,
@@ -123,18 +132,33 @@ export default function ImportModal({ onClose, onImported, T: TProp, themeKey = 
   const [preview,  setPreview]  = useState(null);
   const [result,   setResult]   = useState(null);
   const [error,    setError]    = useState("");
+  const [hint,     setHint]     = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFile = useCallback(f => {
     if (!f) return;
     if (!f.name.toLowerCase().endsWith(".csv")) { setError("Please select a .csv file."); return; }
-    setError(""); setFile(f);
+    setError(""); setHint(""); setFile(f);
     const reader = new FileReader();
     reader.onload = e => {
       const { headers, rows, totalLines } = parseCSVText(e.target.result);
       const missing = REQUIRED_COLS.filter(c => !headers.includes(c));
-      if (missing.length > 0) { setError(`Missing required columns: ${missing.join(", ")}`); setFile(null); return; }
+      if (missing.length > 0) {
+        setError(`Missing required columns: ${missing.join(", ")}`);
+        // A bank statement has no `frequency` column and never can — frequency
+        // is inferred from many transactions. Say so, rather than leaving the
+        // file looking merely malformed.
+        if (looksLikeBankStatement(headers)) {
+          setHint(
+            "This looks like a bank statement. This importer sets up recurring entries — " +
+            "bills and income that repeat — so each row needs a name and a frequency. " +
+            "Raw bank transactions are handled by a separate transaction import."
+          );
+        }
+        setFile(null);
+        return;
+      }
       setPreview({ headers, rows, totalLines }); setPhase("preview");
     };
     reader.onerror = () => setError("Could not read the file.");
@@ -145,10 +169,10 @@ export default function ImportModal({ onClose, onImported, T: TProp, themeKey = 
     e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]);
   }, [handleFile]);
 
-  function resetToIdle() { setPhase("idle"); setFile(null); setPreview(null); setError(""); }
+  function resetToIdle() { setPhase("idle"); setFile(null); setPreview(null); setError(""); setHint(""); }
 
   async function doImport() {
-    setPhase("importing"); setError("");
+    setPhase("importing"); setError(""); setHint("");
     try {
       const res = await api.importEntries(file);
       setResult(res); setPhase("done");
@@ -314,6 +338,7 @@ Salary,6500.00,income,monthly,Salary,2026-07-15`}
         )}
 
         {error && <div style={S.errorBox}>⚠ {error}</div>}
+        {hint  && <div style={S.hintBox}>{hint}</div>}
 
         {/* Footer actions */}
         <div style={{ display: "flex", gap: 10, marginTop: 22 }}>

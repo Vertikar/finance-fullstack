@@ -10,8 +10,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make up          # build and start all services (http://localhost:8080)
 make down        # stop all services
 make logs-api    # tail API logs
+make db-version  # show the applied migration version and dirty flag
+make backup      # dump to backup_YYYYMMDD_HHMMSS.dump (pg_dump custom format)
+make restore FILE=<path>  # ⚠️ replaces the ENTIRE database with the backup
 make reset-db    # ⚠️ DESTRUCTIVE — wipes postgres volume and restarts
 ```
+
+`make backup` / `make restore` read the database user and name from the `db` container's
+own `POSTGRES_USER` / `POSTGRES_DB` (set by docker-compose from `.env`), so they can't
+drift from the values the database was created with. Override per invocation with
+`make psql DB_USER=other DB_NAME=otherdb`.
+
+`backup` writes pg_dump's custom format (`-Fc`). `restore` accepts that and the older plain
+`.sql` dumps, and **validates the whole file before dropping anything** — custom archives by
+decoding them (`pg_restore -f /dev/null`; `pg_restore -l` only reads the header and passes on
+a truncated archive), plain SQL by requiring pg_dump's end-of-dump trailer. Truncation is not
+a SQL error, so `ON_ERROR_STOP` alone does not catch it: psql hits EOF, exits 0 and commits a
+half-restored database. After validation the load runs in a single transaction.
+
+`restore` drops schema `public` first because loading a dump into a populated database
+silently half-restores it: pg_dump emits `COPY` in alphabetical order, so `entries` and
+`budgets` are rejected by their foreign keys before `users` has been loaded.
+
+The pre-flight also compares the dump's own `schema_migrations` version against
+`backend/migrations/`, which is what the API binary embeds, and **refuses a dump that is
+ahead** — see below.
+
+`FORCE=1` skips the confirmation delay and downgrades the version check to a warning. It
+does not bypass the truncation check.
+
+### Migration version drift
+
+The `postgres_data` volume outlives branch switches. Running a branch with a newer
+migration set and then switching back leaves the database ahead of the API binary, and the
+API crash-loops with `no migration found for version N: read down ... file does not exist`
+— which means "the database is ahead of this build", not "a file is missing". `make
+db-version` is the first diagnostic; `make reset-db` is the blunt (destructive) fix.
+
+Backups include `schema_migrations`, so restoring a dump taken on a branch with newer
+migrations reintroduces the same drift. `make restore` now detects this before it drops
+anything and refuses, naming both versions — override with `FORCE=1` if you intend to switch
+to the branch carrying that migration.
+
+To roll a database back by hand when it is already ahead, run the newer migration's
+`.down.sql` statements and then `UPDATE schema_migrations SET version = <n>, dirty = false;`.
+This is preferable to `make reset-db`, which destroys the data.
 
 ### Tests
 
@@ -107,28 +150,30 @@ area tag (e.g. `#frontend`, `#backend`). Move items to `### Done ✓` (check the
 ## Project status & plan
 
 > **Maintained section** — update this whenever a PR merges, a feature is scoped, or
-> priorities change. Last updated: **2026-07-23**.
+> priorities change. Last updated: **2026-07-27**.
 
 ### Current state
 
-- `main` is green through migration 006. Recent merges: **PR #25** (Go module rename to
-  `github.com/vertikar/finance-api`), **PR #27** (v2.1 scope doc under `docs/`), and **PR #26**
-  (`feat: DB-backed categories with buckets grouping` — migration 005 global `categories` table +
-  seed, `GET /api/categories`, frontend fetch with constant fallback, Overview bucket card +
-  Payments bucket filter, plus migration 006 `entries.bucket` per-entry override with a Bucket
-  dropdown in the Add/Edit modal).
+- `main` is green through **migration 006**. Recent merges: **#25** (Go module rename to
+  `github.com/vertikar/finance-api`), **#27** (v2.1 scope doc under `docs/`), **#26**
+  (DB-backed categories with buckets — migration 005 `categories` table + seed,
+  `GET /api/categories`, frontend fetch with constant fallback, Overview bucket card + Payments
+  bucket filter, plus migration 006 `entries.bucket` per-entry override), **#30** (bank-statement
+  hint in the entries importer), and **#33/#34** (backup/restore hardening + migration-drift
+  guard — see "Migration version drift" above).
 - **PR #23 open** — `test: expand backend and frontend coverage for error paths and untested
   logic` (branch `claude/test-coverage-analysis-ggvi5h`). No production behaviour changes
   except a `validateJWTSecret()` testability refactor in `main.go`. **Awaiting Henrik's manual
   test on the local deployment, then merge.**
-- **Branch 2 open** — `feat: transactions schema and CSV import` (branch
+- **PR #28 open** — `feat: transactions schema and bank-CSV import` (branch
   `feature/transactions-schema-and-import`). Migration 007 (`import_sources`, `import_batches`,
   `transactions`), the `importer/` mapping package, and `POST /api/transactions/import` with
   hash-based dedup. Backend-only; Frollo preset only (see the scope doc §7 for why the other five
-  are deferred). Migration verified against a real Postgres. **Awaiting manual local
-  verification, then merge.**
-- Follow-ups from merged PRs live in `TODO.md` (from PRs #19/#20, plus #26's deferred bucket/admin
-  items and Branch 2's deferred bank presets).
+  are deferred). Migration and the full import/dedup flow verified against a real Postgres.
+- **PR #29 open** — `chore: add Bruno collection for manual API testing` (branch
+  `chore/bruno-api-collection`). Tooling only, under `bruno/`; no application code.
+- Follow-ups from merged PRs live in `TODO.md` (PRs #19/#20, #26's bucket/admin items, #30's
+  hint upgrade, #33/#34's backup items, plus #28's deferred bank presets).
 
 ### Next feature: transaction import, recurring detection & buckets
 
