@@ -32,7 +32,12 @@ half-restored database. After validation the load runs in a single transaction.
 silently half-restores it: pg_dump emits `COPY` in alphabetical order, so `entries` and
 `budgets` are rejected by their foreign keys before `users` has been loaded.
 
-Pass `FORCE=1` to skip `restore`'s confirmation delay.
+The pre-flight also compares the dump's own `schema_migrations` version against
+`backend/migrations/`, which is what the API binary embeds, and **refuses a dump that is
+ahead** — see below.
+
+`FORCE=1` skips the confirmation delay and downgrades the version check to a warning. It
+does not bypass the truncation check.
 
 ### Migration version drift
 
@@ -42,8 +47,14 @@ API crash-loops with `no migration found for version N: read down ... file does 
 — which means "the database is ahead of this build", not "a file is missing". `make
 db-version` is the first diagnostic; `make reset-db` is the blunt (destructive) fix.
 
-Note that backups include `schema_migrations`, so restoring a dump taken on a branch with
-newer migrations reintroduces the same drift. Run `make db-version` after any restore.
+Backups include `schema_migrations`, so restoring a dump taken on a branch with newer
+migrations reintroduces the same drift. `make restore` now detects this before it drops
+anything and refuses, naming both versions — override with `FORCE=1` if you intend to switch
+to the branch carrying that migration.
+
+To roll a database back by hand when it is already ahead, run the newer migration's
+`.down.sql` statements and then `UPDATE schema_migrations SET version = <n>, dirty = false;`.
+This is preferable to `make reset-db`, which destroys the data.
 
 ### Tests
 

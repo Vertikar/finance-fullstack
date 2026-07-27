@@ -116,7 +116,15 @@ backup:
 ##     fires — psql reaches EOF, exits 0 and COMMITS a half-restored database.
 ##     Require pg_dump's end-of-dump trailer instead.
 ##
-## Skip the confirmation delay with FORCE=1.
+## The dump's own schema_migrations version is then compared against the
+## migrations in backend/migrations/, which is what the API binary embeds. A dump
+## from a branch with a NEWER migration would leave the database ahead of the
+## binary and crash-loop the API, so it is refused up front rather than diagnosed
+## afterwards with `make db-version`. (This re-reads a custom archive a second
+## time; only noticeable on very large dumps.)
+##
+## FORCE=1 skips the confirmation delay and downgrades the version check to a
+## warning. It does NOT bypass the truncation check — that one is never right.
 restore:
 	@test -n '$(FILE)' \
 		|| { echo "FILE is required, e.g. make restore FILE=backup_20260101_120000.dump"; exit 1; }
@@ -128,6 +136,29 @@ restore:
 		grep -q '^-- PostgreSQL database dump complete' '$(FILE)' \
 			|| { echo "$(FILE) is not a complete SQL dump — pg_dump's end-of-dump trailer is missing."; \
 			     echo "It is truncated. Nothing was changed."; exit 1; }; \
+	fi
+	@dumpver=; \
+	if [ "$$(head -c 5 '$(FILE)')" = "PGDMP" ]; then \
+		dumpver=$$($(DBEXEC) sh -c 'exec pg_restore -f -' < '$(FILE)' \
+			| awk '/^COPY public\.schema_migrations /{getline; print $$1; exit}'); \
+	else \
+		dumpver=$$(awk '/^COPY public\.schema_migrations /{getline; print $$1; exit}' '$(FILE)'); \
+	fi; \
+	maxver=$$(ls backend/migrations/*.up.sql 2>/dev/null \
+		| sed 's|.*/||; s|_.*||; s|^0*||' | sort -n | tail -1); \
+	case "$$dumpver" in ''|*[!0-9]*) dumpver= ;; esac; \
+	case "$$maxver"  in ''|*[!0-9]*) maxver=  ;; esac; \
+	if [ -n "$$dumpver" ] && [ -n "$$maxver" ] && [ "$$dumpver" -gt "$$maxver" ]; then \
+		echo "⚠️  $(FILE) was taken at migration version $$dumpver, but this build embeds only $$maxver."; \
+		echo "    Restoring it leaves the database ahead of the API, which then crash-loops with:"; \
+		echo "      Migration failed: no migration found for version $$dumpver: read down ... file does not exist"; \
+		echo "    That reads like a missing file; it means the database is ahead of this build."; \
+		echo "    Fix: check out the branch carrying migration $$dumpver, or restore an older backup."; \
+		if [ -n '$(FORCE)' ]; then \
+			echo "    FORCE=1 — restoring anyway."; \
+		else \
+			echo "    Nothing was changed."; exit 1; \
+		fi; \
 	fi
 	@echo "⚠️  This REPLACES the entire contents of the database with $(FILE)."
 	@test -n '$(FORCE)' || { \

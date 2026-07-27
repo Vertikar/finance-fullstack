@@ -314,7 +314,25 @@ back. The API container is stopped for the duration and restarted afterwards —
 success path, the failure path, and on Ctrl-C — so nothing writes to the database
 mid-restore.
 
-Pass `FORCE=1` to skip the five-second confirmation delay in scripts.
+**The dump's schema version is checked too.** Backups include `schema_migrations`, so a dump
+taken on a branch with a newer migration would leave the database ahead of the API binary,
+which then refuses to start. `restore` compares the dump's version against
+`backend/migrations/` and stops before dropping anything:
+
+```
+⚠️  backup_20260727_044547.sql was taken at migration version 7, but this build embeds only 6.
+    Restoring it leaves the database ahead of the API, which then crash-loops with:
+      Migration failed: no migration found for version 7: read down ... file does not exist
+    Fix: check out the branch carrying migration 7, or restore an older backup.
+    Nothing was changed.
+```
+
+Restoring an *older* dump is fine and is not blocked — the API simply applies the missing
+migrations on startup.
+
+`FORCE=1` skips the five-second confirmation delay and downgrades the version check to a
+warning, for scripted use or when you are about to switch to the branch that has the newer
+migration. It does **not** bypass the truncation check.
 
 > **A dump also carries the schema version.** `schema_migrations` is included in the
 > backup, so restoring a dump taken on a branch with newer migrations sets the database
@@ -354,8 +372,10 @@ Migration failed: no migration found for version 7: read down for version 7 migr
 ```
 
 That message reads like a missing file, but it means "your database is ahead of this
-build". Restoring a backup taken on the newer branch causes the same thing, because the
-dump includes `schema_migrations`.
+build". Restoring a backup taken on the newer branch used to cause the same thing, because
+the dump includes `schema_migrations` — `make restore` now refuses such a dump up front
+(see [Data Persistence](#data-persistence)). Switching branches with an existing volume
+still gets you here, since nothing intercepts that.
 
 **Diagnose:**
 
