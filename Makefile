@@ -62,10 +62,20 @@ psql:
 		sh -c 'exec psql -U "$(DBU)" -d "$(DBN)"'
 
 ## Show the applied migration version and dirty flag
+##
+## Only "the table isn't there" is reported as an empty database. Any other
+## failure (container down, bad credentials) keeps its own error on stderr —
+## this is the target you reach for *because* something is wrong, so guessing
+## at the cause here is worse than saying nothing.
 db-version:
-	@$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" \
-		-c "SELECT version, dirty FROM schema_migrations;"' 2>/dev/null \
-		|| echo "No schema_migrations table — the database is empty, or migrations have never run."
+	@$(DBEXEC) sh -c 'set -e; \
+		exists=$$(psql -U "$(DBU)" -d "$(DBN)" -qAt \
+			-c "SELECT to_regclass('"'"'schema_migrations'"'"') IS NOT NULL"); \
+		if [ "$$exists" = t ]; then \
+			psql -U "$(DBU)" -d "$(DBN)" -c "SELECT version, dirty FROM schema_migrations;"; \
+		else \
+			echo "No schema_migrations table — the database is empty, or migrations have never run."; \
+		fi'
 
 ## Wipe the database volume and restart fresh
 reset-db:
@@ -76,37 +86,100 @@ reset-db:
 secret:
 	openssl rand -hex 32
 
-## Backup the database to backup_YYYYMMDD_HHMMSS.sql in the project root
+## Backup the database to backup_YYYYMMDD_HHMMSS.dump in the project root
+##
+## Custom format (-Fc), not plain SQL. A plain .sql dump has no integrity check
+## of its own: truncate one and psql will replay it happily to the point it
+## stops and report success. A custom archive is self-describing, so a
+## truncated or corrupt file is a hard read error — which is what lets
+## `restore` refuse it. See the pre-flight check in `restore` below.
 backup:
-	@f=backup_$$(date +%Y%m%d_%H%M%S).sql; \
-	$(DBEXEC) sh -c 'exec pg_dump -U "$(DBU)" -d "$(DBN)" \
-		--clean --if-exists --no-owner --no-privileges' > $$f \
+	@f=backup_$$(date +%Y%m%d_%H%M%S).dump; \
+	$(DBEXEC) sh -c 'exec pg_dump -U "$(DBU)" -d "$(DBN)" -Fc' > $$f \
 		&& echo "Wrote $$f" \
 		|| { rm -f $$f; echo "Backup FAILED — no file written."; exit 1; }
 
-## Restore a backup: make restore FILE=backup_20260101_120000.sql
+## Restore a backup: make restore FILE=backup_20260101_120000.dump
 ##
-## Replaces the entire contents of the database. The schema is dropped and the
-## dump is loaded in ONE transaction with ON_ERROR_STOP, so a restore either
-## fully succeeds or leaves the existing data untouched. Loading a dump into a
-## populated database without dropping first is what produced the silent
-## half-restore this target used to have.
+## Replaces the entire contents of the database: schema `public` is dropped and
+## the backup loaded in its place. Both formats are accepted — the custom
+## archives `make backup` writes now, and the plain .sql dumps it used to.
+##
+## The whole file is READ AND VALIDATED BEFORE ANYTHING IS DROPPED, because
+## neither format fails loudly on its own when truncated:
+##
+##   - custom (-Fc): `pg_restore -f /dev/null` decodes every block without
+##     touching the database. `pg_restore -l` is NOT enough — it only reads the
+##     table of contents at the head of the file and passes on an archive whose
+##     data blocks are missing.
+##   - plain .sql: a truncated dump is not a SQL *error*, so ON_ERROR_STOP never
+##     fires — psql reaches EOF, exits 0 and COMMITS a half-restored database.
+##     Require pg_dump's end-of-dump trailer instead.
+##
+## The dump's own schema_migrations version is then compared against the
+## migrations in backend/migrations/, which is what the API binary embeds. A dump
+## from a branch with a NEWER migration would leave the database ahead of the
+## binary and crash-loop the API, so it is refused up front rather than diagnosed
+## afterwards with `make db-version`. (This re-reads a custom archive a second
+## time; only noticeable on very large dumps.)
+##
+## FORCE=1 skips the confirmation delay and downgrades the version check to a
+## warning. It does NOT bypass the truncation check — that one is never right.
 restore:
 	@test -n '$(FILE)' \
-		|| { echo "FILE is required, e.g. make restore FILE=backup_20260101_120000.sql"; exit 1; }
+		|| { echo "FILE is required, e.g. make restore FILE=backup_20260101_120000.dump"; exit 1; }
 	@test -f '$(FILE)' || { echo "No such backup file: $(FILE)"; exit 1; }
+	@if [ "$$(head -c 5 '$(FILE)')" = "PGDMP" ]; then \
+		$(DBEXEC) sh -c 'exec pg_restore -f /dev/null' < '$(FILE)' \
+			|| { echo "$(FILE) is a truncated or corrupt pg_dump archive. Nothing was changed."; exit 1; }; \
+	else \
+		grep -q '^-- PostgreSQL database dump complete' '$(FILE)' \
+			|| { echo "$(FILE) is not a complete SQL dump — pg_dump's end-of-dump trailer is missing."; \
+			     echo "It is truncated. Nothing was changed."; exit 1; }; \
+	fi
+	@dumpver=; \
+	if [ "$$(head -c 5 '$(FILE)')" = "PGDMP" ]; then \
+		dumpver=$$($(DBEXEC) sh -c 'exec pg_restore -f -' < '$(FILE)' \
+			| awk '/^COPY public\.schema_migrations /{getline; print $$1; exit}'); \
+	else \
+		dumpver=$$(awk '/^COPY public\.schema_migrations /{getline; print $$1; exit}' '$(FILE)'); \
+	fi; \
+	maxver=$$(ls backend/migrations/*.up.sql 2>/dev/null \
+		| sed 's|.*/||; s|_.*||; s|^0*||' | sort -n | tail -1); \
+	case "$$dumpver" in ''|*[!0-9]*) dumpver= ;; esac; \
+	case "$$maxver"  in ''|*[!0-9]*) maxver=  ;; esac; \
+	if [ -n "$$dumpver" ] && [ -n "$$maxver" ] && [ "$$dumpver" -gt "$$maxver" ]; then \
+		echo "⚠️  $(FILE) was taken at migration version $$dumpver, but this build embeds only $$maxver."; \
+		echo "    Restoring it leaves the database ahead of the API, which then crash-loops with:"; \
+		echo "      Migration failed: no migration found for version $$dumpver: read down ... file does not exist"; \
+		echo "    That reads like a missing file; it means the database is ahead of this build."; \
+		echo "    Fix: check out the branch carrying migration $$dumpver, or restore an older backup."; \
+		if [ -n '$(FORCE)' ]; then \
+			echo "    FORCE=1 — restoring anyway."; \
+		else \
+			echo "    Nothing was changed."; exit 1; \
+		fi; \
+	fi
 	@echo "⚠️  This REPLACES the entire contents of the database with $(FILE)."
-	@echo "    Everything currently in it is dropped first. Ctrl-C within 5s to abort."
-	@sleep 5
-	@docker compose stop api >/dev/null
-	@$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" \
-		-v ON_ERROR_STOP=1 --single-transaction \
-		-c "DROP SCHEMA IF EXISTS public CASCADE" \
-		-c "CREATE SCHEMA public" \
-		-f -' < '$(FILE)' \
-		|| { echo "Restore FAILED — the database was left unchanged."; \
-		     docker compose start api >/dev/null; exit 1; }
-	@docker compose start api >/dev/null
+	@test -n '$(FORCE)' || { \
+		echo "    Everything currently in it is dropped first. Ctrl-C within 5s to abort."; \
+		sleep 5; }
+	@docker compose stop api >/dev/null; \
+	trap 'trap - EXIT INT TERM; docker compose start api >/dev/null' EXIT INT TERM; \
+	if [ "$$(head -c 5 '$(FILE)')" = "PGDMP" ]; then \
+		$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" -q -v ON_ERROR_STOP=1 \
+			-c "DROP SCHEMA IF EXISTS public CASCADE" \
+			-c "CREATE SCHEMA public"' \
+		&& $(DBEXEC) sh -c 'exec pg_restore -U "$(DBU)" -d "$(DBN)" \
+			--single-transaction --no-owner --no-privileges' < '$(FILE)'; \
+	else \
+		$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" -q \
+			-v ON_ERROR_STOP=1 --single-transaction \
+			-c "DROP SCHEMA IF EXISTS public CASCADE" \
+			-c "CREATE SCHEMA public" \
+			-f -' < '$(FILE)'; \
+	fi \
+		|| { echo "Restore FAILED."; exit 1; }
 	@echo "Restored from $(FILE)."
 	@echo "The dump also restored schema_migrations — confirm it matches this branch: make db-version"
 

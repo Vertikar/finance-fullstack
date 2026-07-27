@@ -11,8 +11,8 @@ make up          # build and start all services (http://localhost:8080)
 make down        # stop all services
 make logs-api    # tail API logs
 make db-version  # show the applied migration version and dirty flag
-make backup      # dump to backup_YYYYMMDD_HHMMSS.sql
-make restore FILE=<path>  # ⚠️ replaces the ENTIRE database with the dump
+make backup      # dump to backup_YYYYMMDD_HHMMSS.dump (pg_dump custom format)
+make restore FILE=<path>  # ⚠️ replaces the ENTIRE database with the backup
 make reset-db    # ⚠️ DESTRUCTIVE — wipes postgres volume and restarts
 ```
 
@@ -21,11 +21,23 @@ own `POSTGRES_USER` / `POSTGRES_DB` (set by docker-compose from `.env`), so they
 drift from the values the database was created with. Override per invocation with
 `make psql DB_USER=other DB_NAME=otherdb`.
 
-`restore` drops schema `public` and loads the dump in a **single transaction** with
-`ON_ERROR_STOP=1` — it either fully succeeds or leaves the database untouched. Loading a
-dump into a populated database without dropping first silently half-restores it: pg_dump
-emits `COPY` in alphabetical order, so `entries` and `budgets` are rejected by their
-foreign keys before `users` has been loaded.
+`backup` writes pg_dump's custom format (`-Fc`). `restore` accepts that and the older plain
+`.sql` dumps, and **validates the whole file before dropping anything** — custom archives by
+decoding them (`pg_restore -f /dev/null`; `pg_restore -l` only reads the header and passes on
+a truncated archive), plain SQL by requiring pg_dump's end-of-dump trailer. Truncation is not
+a SQL error, so `ON_ERROR_STOP` alone does not catch it: psql hits EOF, exits 0 and commits a
+half-restored database. After validation the load runs in a single transaction.
+
+`restore` drops schema `public` first because loading a dump into a populated database
+silently half-restores it: pg_dump emits `COPY` in alphabetical order, so `entries` and
+`budgets` are rejected by their foreign keys before `users` has been loaded.
+
+The pre-flight also compares the dump's own `schema_migrations` version against
+`backend/migrations/`, which is what the API binary embeds, and **refuses a dump that is
+ahead** — see below.
+
+`FORCE=1` skips the confirmation delay and downgrades the version check to a warning. It
+does not bypass the truncation check.
 
 ### Migration version drift
 
@@ -35,8 +47,14 @@ API crash-loops with `no migration found for version N: read down ... file does 
 — which means "the database is ahead of this build", not "a file is missing". `make
 db-version` is the first diagnostic; `make reset-db` is the blunt (destructive) fix.
 
-Note that backups include `schema_migrations`, so restoring a dump taken on a branch with
-newer migrations reintroduces the same drift. Run `make db-version` after any restore.
+Backups include `schema_migrations`, so restoring a dump taken on a branch with newer
+migrations reintroduces the same drift. `make restore` now detects this before it drops
+anything and refuses, naming both versions — override with `FORCE=1` if you intend to switch
+to the branch carrying that migration.
+
+To roll a database back by hand when it is already ahead, run the newer migration's
+`.down.sql` statements and then `UPDATE schema_migrations SET version = <n>, dirty = false;`.
+This is preferable to `make reset-db`, which destroys the data.
 
 ### Tests
 
