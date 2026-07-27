@@ -244,8 +244,9 @@ make ps                  # show running containers
 
 # ── Database ─────────────────────────────────────
 make psql                # open interactive postgres prompt
+make db-version          # show the applied migration version and dirty flag
 make backup              # dump to backup_YYYYMMDD_HHMMSS.sql
-make restore FILE=<path> # restore from a SQL dump
+make restore FILE=<path> # ⚠️  replaces the ENTIRE database with the dump (see below)
 make reset-db            # ⚠️  DESTRUCTIVE — permanently deletes ALL data (see below)
 
 > ⚠️  **`make reset-db` is destructive and irreversible.**
@@ -286,8 +287,24 @@ Financial data is stored in a named Docker volume (`postgres_data`). It survives
 `docker compose down` and container restarts. Only `docker compose down -v` removes it.
 
 **Backup:** `make backup` — creates `backup_YYYYMMDD_HHMMSS.sql` in the project root.
+The dump is taken with `--clean --if-exists --no-owner --no-privileges`, so it can be
+loaded into a database owned by a different role.
 
 **Restore:** `make restore FILE=backup_20260101_120000.sql`
+
+> ⚠️  **`make restore` replaces the entire contents of the database.** It drops schema
+> `public` and loads the dump in its place. Anything currently in the database is gone.
+
+The restore runs as a **single transaction** with `ON_ERROR_STOP=1`, so it either fully
+succeeds or leaves the existing data untouched — there is no half-restored state. The API
+container is stopped for the duration and restarted afterwards, so nothing writes to the
+database mid-restore.
+
+> **A dump also carries the schema version.** `schema_migrations` is included in the
+> backup, so restoring a dump taken on a branch with newer migrations sets the database
+> to that version. If the running API doesn't embed those migrations it will fail to
+> start — see [Database Migrations](#database-migrations) below. Run `make db-version`
+> after a restore to check.
 
 ---
 
@@ -297,15 +314,47 @@ Migrations are embedded into the API binary at compile time and applied automati
 on startup using `golang-migrate`. Files follow the `{version}_{title}.{up|down}.sql`
 naming convention required by the `iofs` source driver.
 
-| File                                         | Description                                  |
-|----------------------------------------------|----------------------------------------------|
-| `001_initial.up.sql`                         | Create `users`, `entries` tables and trigger |
-| `001_initial.down.sql`                       | Drop all tables                              |
-| `002_add_biannual_frequency.up.sql`          | Expand `frequency` constraint to add biannual|
-| `002_add_biannual_frequency.down.sql`        | Revert to original frequency constraint      |
+| File                                | Description                                     |
+|-------------------------------------|-------------------------------------------------|
+| `001_initial.{up,down}.sql`         | Create `users`, `entries` tables and trigger     |
+| `002_add_biannual_frequency.*`      | Expand `frequency` constraint to add biannual    |
+| `003_add_pay_cycle_settings.*`      | Per-user pay cycle preferences                   |
+| `004_create_budgets.*`              | `budgets` table                                  |
+| `005_create_categories.*`           | Global `categories` table with `bucket` + seed   |
+| `006_add_entry_bucket.*`            | Per-entry `bucket` override on `entries`         |
 
 After pulling changes that include new migrations, run `make reset-db` on a development
 instance, or let the API apply them automatically on restart in production.
+
+### ⚠️  Branch switching and migration version drift
+
+The `postgres_data` volume **outlives branch switches**. If you run a branch carrying a
+newer migration than `main` — say `007` — the database records `version = 7`. Switching
+back to a branch whose binary only embeds `001`–`006` leaves the database *ahead of the
+binary*, and the API crash-loops on startup with:
+
+```
+Migration failed: no migration found for version 7: read down for version 7 migrations: file does not exist
+```
+
+That message reads like a missing file, but it means "your database is ahead of this
+build". Restoring a backup taken on the newer branch causes the same thing, because the
+dump includes `schema_migrations`.
+
+**Diagnose:**
+
+```bash
+make db-version          # what the volume thinks it is at
+```
+
+**Fix**, in order of preference:
+
+1. Check out the branch that has the newer migration and let its down migration run properly,
+   then switch back.
+2. Roll back by hand — drop the objects that migration created, then
+   `UPDATE schema_migrations SET version = <n>, dirty = false;`
+3. `make backup && make reset-db` — ⚠️ destructive, wipes the volume. Note that restoring
+   that backup afterwards will put the newer version straight back.
 
 ---
 

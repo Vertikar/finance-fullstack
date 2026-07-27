@@ -10,8 +10,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make up          # build and start all services (http://localhost:8080)
 make down        # stop all services
 make logs-api    # tail API logs
+make db-version  # show the applied migration version and dirty flag
+make backup      # dump to backup_YYYYMMDD_HHMMSS.sql
+make restore FILE=<path>  # ⚠️ replaces the ENTIRE database with the dump
 make reset-db    # ⚠️ DESTRUCTIVE — wipes postgres volume and restarts
 ```
+
+`make backup` / `make restore` read the database user and name from the `db` container's
+own `POSTGRES_USER` / `POSTGRES_DB` (set by docker-compose from `.env`), so they can't
+drift from the values the database was created with. Override per invocation with
+`make psql DB_USER=other DB_NAME=otherdb`.
+
+`restore` drops schema `public` and loads the dump in a **single transaction** with
+`ON_ERROR_STOP=1` — it either fully succeeds or leaves the database untouched. Loading a
+dump into a populated database without dropping first silently half-restores it: pg_dump
+emits `COPY` in alphabetical order, so `entries` and `budgets` are rejected by their
+foreign keys before `users` has been loaded.
+
+### Migration version drift
+
+The `postgres_data` volume outlives branch switches. Running a branch with a newer
+migration set and then switching back leaves the database ahead of the API binary, and the
+API crash-loops with `no migration found for version N: read down ... file does not exist`
+— which means "the database is ahead of this build", not "a file is missing". `make
+db-version` is the first diagnostic; `make reset-db` is the blunt (destructive) fix.
+
+Note that backups include `schema_migrations`, so restoring a dump taken on a branch with
+newer migrations reintroduces the same drift. Run `make db-version` after any restore.
 
 ### Tests
 

@@ -1,6 +1,22 @@
 .PHONY: up down build logs ps shell-api shell-db psql reset-db secret seed \
+        backup restore db-version \
         test test-backend test-backend-coverage test-frontend test-frontend-ci \
         test-docker test-docker-backend test-docker-frontend
+
+# ── Database connection ──────────────────────────────────────────────────────
+# docker-compose passes DB_USER / DB_NAME from .env into the db container as
+# POSTGRES_USER / POSTGRES_DB. These targets read those values back out of the
+# container rather than re-parsing .env here, so they can never drift from the
+# values the database was actually created with.
+#
+# Override for a single invocation:  make psql DB_USER=other DB_NAME=otherdb
+DB_USER ?=
+DB_NAME ?=
+
+# Resolved inside the container: explicit override wins, else the container's own value.
+DBU = $${DB_USER:-$$POSTGRES_USER}
+DBN = $${DB_NAME:-$$POSTGRES_DB}
+DBEXEC = docker compose exec -T -e DB_USER='$(DB_USER)' -e DB_NAME='$(DB_NAME)' db
 
 ## Start everything (build if needed)
 up:
@@ -42,7 +58,14 @@ shell-db:
 
 ## Open a psql prompt
 psql:
-	docker compose exec db psql -U finance -d finance
+	docker compose exec -e DB_USER='$(DB_USER)' -e DB_NAME='$(DB_NAME)' db \
+		sh -c 'exec psql -U "$(DBU)" -d "$(DBN)"'
+
+## Show the applied migration version and dirty flag
+db-version:
+	@$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" \
+		-c "SELECT version, dirty FROM schema_migrations;"' 2>/dev/null \
+		|| echo "No schema_migrations table — the database is empty, or migrations have never run."
 
 ## Wipe the database volume and restart fresh
 reset-db:
@@ -53,17 +76,43 @@ reset-db:
 secret:
 	openssl rand -hex 32
 
-## Backup the database
+## Backup the database to backup_YYYYMMDD_HHMMSS.sql in the project root
 backup:
-	docker compose exec db pg_dump -U finance finance > backup_$$(date +%Y%m%d_%H%M%S).sql
+	@f=backup_$$(date +%Y%m%d_%H%M%S).sql; \
+	$(DBEXEC) sh -c 'exec pg_dump -U "$(DBU)" -d "$(DBN)" \
+		--clean --if-exists --no-owner --no-privileges' > $$f \
+		&& echo "Wrote $$f" \
+		|| { rm -f $$f; echo "Backup FAILED — no file written."; exit 1; }
 
 ## Restore a backup: make restore FILE=backup_20260101_120000.sql
+##
+## Replaces the entire contents of the database. The schema is dropped and the
+## dump is loaded in ONE transaction with ON_ERROR_STOP, so a restore either
+## fully succeeds or leaves the existing data untouched. Loading a dump into a
+## populated database without dropping first is what produced the silent
+## half-restore this target used to have.
 restore:
-	docker compose exec -T db psql -U finance -d finance < $(FILE)
+	@test -n '$(FILE)' \
+		|| { echo "FILE is required, e.g. make restore FILE=backup_20260101_120000.sql"; exit 1; }
+	@test -f '$(FILE)' || { echo "No such backup file: $(FILE)"; exit 1; }
+	@echo "⚠️  This REPLACES the entire contents of the database with $(FILE)."
+	@echo "    Everything currently in it is dropped first. Ctrl-C within 5s to abort."
+	@sleep 5
+	@docker compose stop api >/dev/null
+	@$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" \
+		-v ON_ERROR_STOP=1 --single-transaction \
+		-c "DROP SCHEMA IF EXISTS public CASCADE" \
+		-c "CREATE SCHEMA public" \
+		-f -' < '$(FILE)' \
+		|| { echo "Restore FAILED — the database was left unchanged."; \
+		     docker compose start api >/dev/null; exit 1; }
+	@docker compose start api >/dev/null
+	@echo "Restored from $(FILE)."
+	@echo "The dump also restored schema_migrations — confirm it matches this branch: make db-version"
 
 ## Seed the database with test data (test@example.com / testpassword)
 seed:
-	docker compose exec -T db psql -U finance -d finance < backend/seed.sql
+	@$(DBEXEC) sh -c 'exec psql -U "$(DBU)" -d "$(DBN)" -v ON_ERROR_STOP=1' < backend/seed.sql
 
 # ── Tests (local — requires Go and Node installed) ──────────────────────────
 
