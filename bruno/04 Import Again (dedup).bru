@@ -1,0 +1,43 @@
+meta {
+  name: 04 Import Again (dedup)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/transactions/import
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(../backend/testdata/frollo_sample.csv)
+}
+
+tests {
+  test("import accepted", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("every row is recognised as already imported", function() {
+    expect(res.body.imported).to.equal(0);
+    expect(res.body.skipped_duplicates).to.equal(12);
+  });
+
+  test("duplicates are not reported as errors", function() {
+    expect(res.body.errors).to.eql([]);
+  });
+}
+
+docs {
+  The same file again. This is the dedup check: the unique index on
+  (user_id, external_id) turns every row into a no-op, so re-importing an
+  overlapping export is safe.
+
+  Expected:
+
+      { "imported": 0, "skipped_duplicates": 12, "errors": [] }
+
+  A non-zero `imported` here means dedup is not working — most likely the
+  fixture was edited between runs, which changes the derived external_id.
+}

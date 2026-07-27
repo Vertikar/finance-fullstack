@@ -1,0 +1,56 @@
+meta {
+  name: 03 Import Transactions
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/transactions/import
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(../backend/testdata/frollo_sample.csv)
+}
+
+script:post-response {
+  // Remember the batch id so a later undo/inspect request can target it.
+  if (res.body && res.body.batch_id) {
+    bru.setEnvVar("batchId", res.body.batch_id);
+  }
+}
+
+tests {
+  test("import accepted", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("the Frollo preset was auto-detected", function() {
+    expect(res.body.source).to.equal("Frollo");
+  });
+
+  test("all 12 fixture rows imported", function() {
+    expect(res.body.imported).to.equal(12);
+    expect(res.body.skipped_duplicates).to.equal(0);
+    expect(res.body.errors).to.eql([]);
+  });
+}
+
+docs {
+  Uploads the synthetic fixture with no `source_id`, so the server auto-detects
+  the format from the header row.
+
+  Expected on a clean database:
+
+      { "batch_id": "...", "source": "Frollo", "imported": 12,
+        "skipped_duplicates": 0, "errors": [] }
+
+  If the file path does not resolve, use the file picker on the `file` row in
+  the Body tab and select `backend/testdata/frollo_sample.csv` — the picker
+  rewrites the path for your machine.
+
+  Optional form fields (add as extra rows in the Body tab):
+    - `source_id`   — a saved import_sources id, instead of auto-detection
+    - `column_map`  — an inline JSON mapping, which takes priority over both
+}
