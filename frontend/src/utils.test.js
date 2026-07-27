@@ -1,6 +1,38 @@
 import { toMonthly, addFreq, fmt, fmtFull, savingsRate, buildCashFlow,
          prevFreq, getCurrentCycleWindow, getExpensesDueInCycle,
-         sumActualForMonth, totalMonthlyBudgets, entryBucket } from './utils';
+         sumActualForMonth, totalMonthlyBudgets, entryBucket,
+         looksLikeBankStatement } from './utils';
+
+// ─── looksLikeBankStatement ────────────────────────────────────────────────────
+
+describe('looksLikeBankStatement', () => {
+  test('recognises a Frollo export header row', () =>
+    expect(looksLikeBankStatement([
+      'transaction_id', 'transaction_date', 'description', 'amount',
+      'category_name', 'budget_category', 'transaction_type', 'included',
+    ])).toBe(true));
+
+  test('recognises a debit/credit style statement', () =>
+    expect(looksLikeBankStatement(['date', 'description', 'debit', 'credit', 'balance'])).toBe(true));
+
+  test('rejects the entries import template', () =>
+    expect(looksLikeBankStatement(
+      ['name', 'amount', 'type', 'frequency', 'category', 'next_due']
+    )).toBe(false));
+
+  // One stray signal column is not enough — an entries CSV could carry its own
+  // `balance` column without being a statement.
+  test('rejects a single incidental signal column', () =>
+    expect(looksLikeBankStatement(['name', 'amount', 'balance'])).toBe(false));
+
+  test('tolerates case and padding', () =>
+    expect(looksLikeBankStatement([' Transaction_Date ', 'BUDGET_CATEGORY'])).toBe(true));
+
+  test('handles empty and missing input', () => {
+    expect(looksLikeBankStatement([])).toBe(false);
+    expect(looksLikeBankStatement()).toBe(false);
+  });
+});
 
 // ─── entryBucket ───────────────────────────────────────────────────────────────
 

@@ -89,4 +89,34 @@ describe('ImportModal component', () => {
 
     expect(screen.getByText(/Please select a \.csv file/i)).toBeInTheDocument();
   });
+
+  // A bank statement can never satisfy this importer — it has no frequency
+  // column — so the plain "missing columns" error is misleading on its own.
+  test('explains the mismatch when the CSV is a bank statement', async () => {
+    const { container } = render(
+      <ImportModal onClose={() => {}} onImported={() => {}} themeKey="dark" />
+    );
+    const input = container.querySelector('input[type="file"]');
+    const statement =
+      'transaction_id,transaction_date,description,amount,category_name,budget_category,account_name\n' +
+      't-1,2026-03-15,Disney Plus Aus,-20.99,Subscriptions/Renewals,lifestyle,Everyday Account';
+    const file = new File([statement], 'frollo.csv', { type: 'text/csv' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText(/Missing required columns/i)).toBeInTheDocument();
+    expect(screen.getByText(/looks like a bank statement/i)).toBeInTheDocument();
+    expect(screen.getByText(/separate transaction import/i)).toBeInTheDocument();
+  });
+
+  test('does not show the statement hint for an ordinary invalid CSV', async () => {
+    const { container } = render(
+      <ImportModal onClose={() => {}} onImported={() => {}} themeKey="dark" />
+    );
+    const input = container.querySelector('input[type="file"]');
+    const file = new File(['foo,bar\n1,2'], 'junk.csv', { type: 'text/csv' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText(/Missing required columns/i)).toBeInTheDocument();
+    expect(screen.queryByText(/looks like a bank statement/i)).not.toBeInTheDocument();
+  });
 });
