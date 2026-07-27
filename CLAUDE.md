@@ -63,6 +63,7 @@ This is preferable to `make reset-db`, which destroys the data.
 make test                   # both suites in CI mode
 make test-backend           # go test ./... -v
 make test-backend-coverage  # + HTML report at backend/coverage.html
+make test-migrations        # migration checks incl. the round trip (needs a Postgres)
 make test-frontend-ci       # react-scripts test --watchAll=false --coverage
 make test-frontend          # watch mode
 
@@ -82,6 +83,31 @@ To run a single Jest test file:
 cd frontend && npx react-scripts test utils.test.js --watchAll=false
 ```
 
+### Migration checks
+
+`backend/migrations_static_test.go` enforces the hygiene rules on every run, no database
+needed: three-digit filenames (`^\d{3}_[a-z0-9_]+\.(up|down)\.sql$`), an up **and** a down
+for every version, no version claimed twice, versions contiguous from `001`, and both
+directions readable through the same `iofs` driver the API uses.
+
+`backend/migrations_roundtrip_test.go` walks the set up one version at a time recording the
+schema at each step, walks back down comparing each step against what it recorded, then
+re-applies the whole set and compares against the first pass. Stepping is the point —
+rolling straight down to zero hides an incomplete down, because `001`'s down drops the
+tables outright and the re-up then looks identical.
+
+It needs a Postgres and skips without one, so `make test-backend` and the Docker test image
+stay green offline:
+
+```bash
+MIGRATE_TEST_DATABASE_URL='postgres://user:pass@localhost:5432/postgres?sslmode=disable' \
+  go test . -count=1 -run TestMigration -v
+```
+
+The database named there is never migrated — the test creates a uniquely-named throwaway
+and drops it afterwards. CI sets `MIGRATE_TEST_REQUIRE_DB=1` alongside the URL so a broken
+service container fails the build instead of silently skipping the check.
+
 ## Architecture
 
 **Stack:** Go 1.22 API → PostgreSQL 16, served behind nginx which proxies `/api/*` to the Go backend and serves the React SPA for everything else. All orchestrated with Docker Compose.
@@ -95,7 +121,7 @@ cd frontend && npx react-scripts test utils.test.js --watchAll=false
 - `handlers/import_export.go` — `GET /api/entries/export` (CSV download) and `POST /api/entries/import` (multipart CSV upload).
 - `handlers/settings.go` — `GET/PUT /api/settings/pay-cycle` for per-user pay cycle preferences.
 - `middleware/auth.go` — JWT validation middleware; exposes `GetUserID(r)` to extract the claim.
-- `migrations/` — embedded into the binary via `//go:embed`; applied automatically on startup using `golang-migrate`. Files follow `{NNN}_{title}.{up|down}.sql` naming.
+- `migrations/` — embedded into the binary via `//go:embed`; applied automatically on startup using `golang-migrate`. Files follow `{NNN}_{title}.{up|down}.sql` naming — three digits, lower_snake_case title, both directions required. CI enforces this (see **Migration checks**).
 
 **Key dependency note:** `go.mod` has `replace` directives that mirror `golang.org/x/*` packages to `github.com/golang/*` mirrors. Don't remove these.
 
