@@ -1,0 +1,46 @@
+meta {
+  name: 01 Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "test@example.com",
+    "password": "testpassword"
+  }
+}
+
+script:post-response {
+  // Capture the JWT into the environment so every other request in this
+  // collection can inherit it as a bearer token. Run this request first.
+  if (res.getStatus() === 200 && res.body && res.body.token) {
+    bru.setEnvVar("token", res.body.token);
+  }
+}
+
+tests {
+  test("login succeeds", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("a token was captured", function() {
+    expect(res.body.token).to.be.a("string");
+    expect(bru.getEnvVar("token")).to.be.a("string");
+  });
+}
+
+docs {
+  Signs in as the seeded user and stores the JWT in the `token` environment
+  variable.
+
+  Credentials come from `backend/seed.sql` — run `make seed` first if the user
+  does not exist yet. The token is valid for 30 days; re-run this request
+  whenever calls start returning 401.
+}

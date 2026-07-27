@@ -1,0 +1,32 @@
+meta {
+  name: 02 Get Categories
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/categories
+  body: none
+  auth: inherit
+}
+
+tests {
+  test("token is accepted", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("categories are seeded with buckets", function() {
+    expect(res.body).to.be.an("array");
+    expect(res.body.length).to.be.above(0);
+    expect(res.body[0]).to.have.property("bucket");
+  });
+}
+
+docs {
+  A cheap sanity check that the bearer token is working before attempting the
+  multipart upload. A 401 here means the token is missing or expired — re-run
+  "01 Login".
+
+  Also confirms migration 005 seeded the category catalogue, which the import
+  endpoint reads to decide each row's bucket.
+}
