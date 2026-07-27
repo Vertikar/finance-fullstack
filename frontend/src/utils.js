@@ -58,6 +58,29 @@ export function entryBucket(entry, catBucketMap = {}) {
   return entry.bucket || catBucketMap[entry.category] || "living";
 }
 
+// Column names that only appear in raw bank-statement exports, never in a
+// recurring-entries CSV. Used to tell the two apart on a failed import.
+export const STATEMENT_SIGNAL_COLS = [
+  "transaction_date", "budget_category", "transaction_type",
+  "debit", "credit", "balance", "account_name", "provider_name",
+];
+
+/**
+ * Guess whether a CSV's headers came from a bank statement rather than a
+ * recurring-entries file.
+ *
+ * Two signals are required, not one: an entries CSV could plausibly carry a
+ * stray `balance` or `account_name` column of its own, and a false positive
+ * would send someone down the wrong path. Bank exports carry several.
+ */
+export function looksLikeBankStatement(headers = []) {
+  const seen = new Set(
+    (headers || []).map(h => String(h).toLowerCase().trim())
+  );
+  const hits = STATEMENT_SIGNAL_COLS.filter(c => seen.has(c));
+  return hits.length >= 2;
+}
+
 /**
  * Convert a payment amount to its monthly equivalent.
  * biannual = every 6 months = 2 payments/year → amount / 6

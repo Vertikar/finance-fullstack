@@ -18,6 +18,7 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] Bucket views in the Cash Flow and Pay Cycle tabs (Phase 1 only added Overview card + Payments filter) #frontend #pr-26
 - [ ] Admin page for category management — add/rename/re-bucket/retire categories + colour picker, CRUD over the `categories` table #frontend #backend #pr-26
 - [ ] Add FK `entries.category` → `categories(id)` once the category admin page lands (kept as free-text TEXT for now to avoid a risky data migration) #backend #pr-26
+- [ ] Upgrade the bank-statement hint in `ImportModal` from static text into a button that opens the transaction importer, once `TransactionImport.js` exists (it currently explains the distinction but can't link anywhere) #frontend #pr-30
 - [ ] `.env` is tracked in git despite the README's "Never commit `.env`" — untrack it, add it to `.gitignore`, and rotate the committed `DB_PASSWORD` / `JWT_SECRET` #chore #pr-33
 - [ ] Write backups to a `backups/` directory rather than the project root #devex #pr-33
 - [ ] `COMMENT ON EXTENSION "uuid-ossp"` requires extension ownership, so under `ON_ERROR_STOP=1` a restore run as a non-owner role would abort. Add `--no-comments` to `make backup` if that ever bites #backend #pr-33
