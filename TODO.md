@@ -19,7 +19,15 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] Admin page for category management — add/rename/re-bucket/retire categories + colour picker, CRUD over the `categories` table #frontend #backend #pr-26
 - [ ] Add FK `entries.category` → `categories(id)` once the category admin page lands (kept as free-text TEXT for now to avoid a risky data migration) #backend #pr-26
 - [ ] Upgrade the bank-statement hint in `ImportModal` from static text into a button that opens the transaction importer, once `TransactionImport.js` exists (it currently explains the distinction but can't link anywhere) #frontend #pr-30
+- [ ] `.env` is tracked in git despite the README's "Never commit `.env`" — untrack it, add it to `.gitignore`, and rotate the committed `DB_PASSWORD` / `JWT_SECRET` #chore #pr-33
+- [ ] Write backups to a `backups/` directory rather than the project root #devex #pr-33
+- [ ] `COMMENT ON EXTENSION "uuid-ossp"` requires extension ownership, so under `ON_ERROR_STOP=1` a restore run as a non-owner role would abort. Add `--no-comments` to `make backup` if that ever bites #backend #pr-33
+- [ ] `restore` drops schema `public` in a separate transaction from the load, so a backup that passes validation but still fails to load (disk full, permissions) leaves an empty schema. Closing the gap needs the drop inside the load's transaction — `pg_restore --clean --if-exists --single-transaction`, which only drops objects present in the archive #devex #pr-34
+- [ ] Fail fast on migration errors instead of crash-looping, and make the error message name both versions (issue 1, items 1–2) #backend
+- [ ] CI check for migration hygiene — up/down parity, contiguous versions, up→down→up round-trip (issue 2) #ci #backend
 
 ### In Progress
 
 ### Done ✓
+
+- [x] Refuse a restore when the dump's `schema_migrations` version is ahead of the migrations embedded in the API binary, instead of leaving it to `make db-version` after the fact. Hit for real: restoring a version-7 backup onto a build embedding `001`–`006` crash-looped the API and returned 502s to the login form #devex #pr-34

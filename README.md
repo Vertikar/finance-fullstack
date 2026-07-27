@@ -244,8 +244,9 @@ make ps                  # show running containers
 
 # ── Database ─────────────────────────────────────
 make psql                # open interactive postgres prompt
-make backup              # dump to backup_YYYYMMDD_HHMMSS.sql
-make restore FILE=<path> # restore from a SQL dump
+make db-version          # show the applied migration version and dirty flag
+make backup              # dump to backup_YYYYMMDD_HHMMSS.dump (pg_dump custom format)
+make restore FILE=<path> # ⚠️  replaces the ENTIRE database with the backup (see below)
 make reset-db            # ⚠️  DESTRUCTIVE — permanently deletes ALL data (see below)
 
 > ⚠️  **`make reset-db` is destructive and irreversible.**
@@ -285,9 +286,59 @@ Copy `.env.example` to `.env` before first run. Never commit `.env`.
 Financial data is stored in a named Docker volume (`postgres_data`). It survives
 `docker compose down` and container restarts. Only `docker compose down -v` removes it.
 
-**Backup:** `make backup` — creates `backup_YYYYMMDD_HHMMSS.sql` in the project root.
+**Backup:** `make backup` — creates `backup_YYYYMMDD_HHMMSS.dump` in the project root, in
+pg_dump's **custom format** (`-Fc`). It is a compressed binary archive, not readable SQL;
+use `pg_restore -f - <file>` to inspect one.
 
-**Restore:** `make restore FILE=backup_20260101_120000.sql`
+**Restore:** `make restore FILE=backup_20260101_120000.dump`
+
+> ⚠️  **`make restore` replaces the entire contents of the database.** It drops schema
+> `public` and loads the backup in its place. Anything currently in the database is gone.
+
+`restore` accepts both the custom-format archives `make backup` writes now and the plain
+`.sql` dumps it used to, so older backups remain restorable.
+
+**The backup is fully read and validated before anything is dropped**, because neither
+format reports truncation on its own:
+
+- A **custom archive** is decoded end to end (`pg_restore -f /dev/null`) without touching
+  the database. Listing the archive is not sufficient — `pg_restore -l` reads only the
+  table of contents at the head of the file and succeeds on an archive whose data blocks
+  are missing.
+- A **plain `.sql` dump** has no integrity check at all. Truncation is not a SQL *error*,
+  so `ON_ERROR_STOP` never fires: psql reaches end-of-file, exits 0 and commits a
+  half-restored database. `restore` requires pg_dump's end-of-dump trailer instead.
+
+Once validated, the load runs in a **single transaction**, so a failure mid-load rolls
+back. The API container is stopped for the duration and restarted afterwards — on the
+success path, the failure path, and on Ctrl-C — so nothing writes to the database
+mid-restore.
+
+**The dump's schema version is checked too.** Backups include `schema_migrations`, so a dump
+taken on a branch with a newer migration would leave the database ahead of the API binary,
+which then refuses to start. `restore` compares the dump's version against
+`backend/migrations/` and stops before dropping anything:
+
+```
+⚠️  backup_20260727_044547.sql was taken at migration version 7, but this build embeds only 6.
+    Restoring it leaves the database ahead of the API, which then crash-loops with:
+      Migration failed: no migration found for version 7: read down ... file does not exist
+    Fix: check out the branch carrying migration 7, or restore an older backup.
+    Nothing was changed.
+```
+
+Restoring an *older* dump is fine and is not blocked — the API simply applies the missing
+migrations on startup.
+
+`FORCE=1` skips the five-second confirmation delay and downgrades the version check to a
+warning, for scripted use or when you are about to switch to the branch that has the newer
+migration. It does **not** bypass the truncation check.
+
+> **A dump also carries the schema version.** `schema_migrations` is included in the
+> backup, so restoring a dump taken on a branch with newer migrations sets the database
+> to that version. If the running API doesn't embed those migrations it will fail to
+> start — see [Database Migrations](#database-migrations) below. Run `make db-version`
+> after a restore to check.
 
 ---
 
@@ -297,15 +348,49 @@ Migrations are embedded into the API binary at compile time and applied automati
 on startup using `golang-migrate`. Files follow the `{version}_{title}.{up|down}.sql`
 naming convention required by the `iofs` source driver.
 
-| File                                         | Description                                  |
-|----------------------------------------------|----------------------------------------------|
-| `001_initial.up.sql`                         | Create `users`, `entries` tables and trigger |
-| `001_initial.down.sql`                       | Drop all tables                              |
-| `002_add_biannual_frequency.up.sql`          | Expand `frequency` constraint to add biannual|
-| `002_add_biannual_frequency.down.sql`        | Revert to original frequency constraint      |
+| File                                | Description                                     |
+|-------------------------------------|-------------------------------------------------|
+| `001_initial.{up,down}.sql`         | Create `users`, `entries` tables and trigger     |
+| `002_add_biannual_frequency.*`      | Expand `frequency` constraint to add biannual    |
+| `003_add_pay_cycle_settings.*`      | Per-user pay cycle preferences                   |
+| `004_create_budgets.*`              | `budgets` table                                  |
+| `005_create_categories.*`           | Global `categories` table with `bucket` + seed   |
+| `006_add_entry_bucket.*`            | Per-entry `bucket` override on `entries`         |
 
 After pulling changes that include new migrations, run `make reset-db` on a development
 instance, or let the API apply them automatically on restart in production.
+
+### ⚠️  Branch switching and migration version drift
+
+The `postgres_data` volume **outlives branch switches**. If you run a branch carrying a
+newer migration than `main` — say `007` — the database records `version = 7`. Switching
+back to a branch whose binary only embeds `001`–`006` leaves the database *ahead of the
+binary*, and the API crash-loops on startup with:
+
+```
+Migration failed: no migration found for version 7: read down for version 7 migrations: file does not exist
+```
+
+That message reads like a missing file, but it means "your database is ahead of this
+build". Restoring a backup taken on the newer branch used to cause the same thing, because
+the dump includes `schema_migrations` — `make restore` now refuses such a dump up front
+(see [Data Persistence](#data-persistence)). Switching branches with an existing volume
+still gets you here, since nothing intercepts that.
+
+**Diagnose:**
+
+```bash
+make db-version          # what the volume thinks it is at
+```
+
+**Fix**, in order of preference:
+
+1. Check out the branch that has the newer migration and let its down migration run properly,
+   then switch back.
+2. Roll back by hand — drop the objects that migration created, then
+   `UPDATE schema_migrations SET version = <n>, dirty = false;`
+3. `make backup && make reset-db` — ⚠️ destructive, wipes the volume. Note that restoring
+   that backup afterwards will put the newer version straight back.
 
 ---
 

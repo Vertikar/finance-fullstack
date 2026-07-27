@@ -36,8 +36,12 @@ frontend/yarn-error.log*
 
 # ── Database backups ──────────────────────────────────────────────────────────
 *.sql
+*.dump
 !backend/migrations/*.sql
 !backend/seed.sql
+
+# ── Git worktrees ─────────────────────────────────────────────────────────────
+.worktrees/
 
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
