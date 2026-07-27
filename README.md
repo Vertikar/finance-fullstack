@@ -245,8 +245,8 @@ make ps                  # show running containers
 # ── Database ─────────────────────────────────────
 make psql                # open interactive postgres prompt
 make db-version          # show the applied migration version and dirty flag
-make backup              # dump to backup_YYYYMMDD_HHMMSS.sql
-make restore FILE=<path> # ⚠️  replaces the ENTIRE database with the dump (see below)
+make backup              # dump to backup_YYYYMMDD_HHMMSS.dump (pg_dump custom format)
+make restore FILE=<path> # ⚠️  replaces the ENTIRE database with the backup (see below)
 make reset-db            # ⚠️  DESTRUCTIVE — permanently deletes ALL data (see below)
 
 > ⚠️  **`make reset-db` is destructive and irreversible.**
@@ -286,19 +286,35 @@ Copy `.env.example` to `.env` before first run. Never commit `.env`.
 Financial data is stored in a named Docker volume (`postgres_data`). It survives
 `docker compose down` and container restarts. Only `docker compose down -v` removes it.
 
-**Backup:** `make backup` — creates `backup_YYYYMMDD_HHMMSS.sql` in the project root.
-The dump is taken with `--clean --if-exists --no-owner --no-privileges`, so it can be
-loaded into a database owned by a different role.
+**Backup:** `make backup` — creates `backup_YYYYMMDD_HHMMSS.dump` in the project root, in
+pg_dump's **custom format** (`-Fc`). It is a compressed binary archive, not readable SQL;
+use `pg_restore -f - <file>` to inspect one.
 
-**Restore:** `make restore FILE=backup_20260101_120000.sql`
+**Restore:** `make restore FILE=backup_20260101_120000.dump`
 
 > ⚠️  **`make restore` replaces the entire contents of the database.** It drops schema
-> `public` and loads the dump in its place. Anything currently in the database is gone.
+> `public` and loads the backup in its place. Anything currently in the database is gone.
 
-The restore runs as a **single transaction** with `ON_ERROR_STOP=1`, so it either fully
-succeeds or leaves the existing data untouched — there is no half-restored state. The API
-container is stopped for the duration and restarted afterwards, so nothing writes to the
-database mid-restore.
+`restore` accepts both the custom-format archives `make backup` writes now and the plain
+`.sql` dumps it used to, so older backups remain restorable.
+
+**The backup is fully read and validated before anything is dropped**, because neither
+format reports truncation on its own:
+
+- A **custom archive** is decoded end to end (`pg_restore -f /dev/null`) without touching
+  the database. Listing the archive is not sufficient — `pg_restore -l` reads only the
+  table of contents at the head of the file and succeeds on an archive whose data blocks
+  are missing.
+- A **plain `.sql` dump** has no integrity check at all. Truncation is not a SQL *error*,
+  so `ON_ERROR_STOP` never fires: psql reaches end-of-file, exits 0 and commits a
+  half-restored database. `restore` requires pg_dump's end-of-dump trailer instead.
+
+Once validated, the load runs in a **single transaction**, so a failure mid-load rolls
+back. The API container is stopped for the duration and restarted afterwards — on the
+success path, the failure path, and on Ctrl-C — so nothing writes to the database
+mid-restore.
+
+Pass `FORCE=1` to skip the five-second confirmation delay in scripts.
 
 > **A dump also carries the schema version.** `schema_migrations` is included in the
 > backup, so restoring a dump taken on a branch with newer migrations sets the database
