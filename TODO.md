@@ -24,10 +24,12 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] `COMMENT ON EXTENSION "uuid-ossp"` requires extension ownership, so under `ON_ERROR_STOP=1` a restore run as a non-owner role would abort. Add `--no-comments` to `make backup` if that ever bites #backend #pr-33
 - [ ] `restore` drops schema `public` in a separate transaction from the load, so a backup that passes validation but still fails to load (disk full, permissions) leaves an empty schema. Closing the gap needs the drop inside the load's transaction — `pg_restore --clean --if-exists --single-transaction`, which only drops objects present in the archive #devex #pr-34
 - [ ] Fail fast on migration errors instead of crash-looping, and make the error message name both versions (issue 1, items 1–2) #backend
-- [ ] CI check for migration hygiene — up/down parity, contiguous versions, up→down→up round-trip (issue 2) #ci #backend
+- [ ] The round trip only proves each down reverses its up structurally — it compares schema, not data. A down that drops and recreates a table with the right shape but loses its seed rows still passes #ci #backend #pr-35
+- [ ] Migration checks cover `schema public` only. An object created in another schema by a future migration would be invisible to both the snapshot and the emptiness assertion #ci #backend #pr-35
 
 ### In Progress
 
 ### Done ✓
 
+- [x] CI check for migration hygiene — up/down parity, contiguous versions, up→down→up round-trip (issue 2) #ci #backend #pr-35
 - [x] Refuse a restore when the dump's `schema_migrations` version is ahead of the migrations embedded in the API binary, instead of leaving it to `make db-version` after the fact. Hit for real: restoring a version-7 backup onto a build embedding `001`–`006` crash-looped the API and returned 502s to the login form #devex #pr-34

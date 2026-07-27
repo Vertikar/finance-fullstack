@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -120,20 +121,31 @@ func validateJWTSecret(secret string) error {
 	return nil
 }
 
-func runMigrations(database *sql.DB) {
+// newMigrator wires the embedded migration set to an existing database handle.
+// Extracted from runMigrations so tests can drive migrations up and down without
+// the log.Fatalf error handling that only makes sense during startup.
+func newMigrator(database *sql.DB) (*migrate.Migrate, error) {
 	sourceDriver, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
-		log.Fatalf("Migration source error: %v", err)
+		return nil, fmt.Errorf("migration source error: %w", err)
 	}
 	dbDriver, err := postgres.WithInstance(database, &postgres.Config{})
 	if err != nil {
-		log.Fatalf("Migration db driver error: %v", err)
+		return nil, fmt.Errorf("migration db driver error: %w", err)
 	}
 	m, err := migrate.NewWithInstance("iofs", sourceDriver, "postgres", dbDriver)
 	if err != nil {
-		log.Fatalf("Migration init error: %v", err)
+		return nil, fmt.Errorf("migration init error: %w", err)
 	}
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+	return m, nil
+}
+
+func runMigrations(database *sql.DB) {
+	m, err := newMigrator(database)
+	if err != nil {
+		log.Fatalf("Migration setup failed: %v", err)
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		log.Fatalf("Migration failed: %v", err)
 	}
 	log.Println("Migrations applied")

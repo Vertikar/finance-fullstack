@@ -1,6 +1,7 @@
 .PHONY: up down build logs ps shell-api shell-db psql reset-db secret seed \
         backup restore db-version \
-        test test-backend test-backend-coverage test-frontend test-frontend-ci \
+        test test-backend test-backend-coverage test-migrations \
+        test-frontend test-frontend-ci \
         test-docker test-docker-backend test-docker-frontend
 
 # ── Database connection ──────────────────────────────────────────────────────
@@ -197,6 +198,18 @@ test-backend:
 test-backend-coverage:
 	cd backend && go test ./... -coverprofile=coverage.out && go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report written to backend/coverage.html"
+
+## Run the migration checks, including the up→down→up round trip (needs a Postgres)
+test-migrations:
+	@test -n '$(MIGRATE_TEST_DATABASE_URL)' || { \
+		echo "MIGRATE_TEST_DATABASE_URL is required — a Postgres this test may create and drop databases on."; \
+		echo "The database you name is never migrated; the test works in a throwaway it creates itself."; \
+		echo; \
+		echo "With the local stack running (make up), the db container exposes 5432:"; \
+		echo "  make test-migrations MIGRATE_TEST_DATABASE_URL='postgres://USER:PASSWORD@localhost:5432/DBNAME?sslmode=disable'"; \
+		exit 1; }
+	cd backend && MIGRATE_TEST_DATABASE_URL='$(MIGRATE_TEST_DATABASE_URL)' MIGRATE_TEST_REQUIRE_DB=1 \
+		go test . -count=1 -run TestMigration -v
 
 ## Run frontend unit tests locally (watch mode)
 test-frontend:
