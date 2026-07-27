@@ -39,6 +39,9 @@ frontend/yarn-error.log*
 !backend/migrations/*.sql
 !backend/seed.sql
 
+# ── Git worktrees ─────────────────────────────────────────────────────────────
+.worktrees/
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?

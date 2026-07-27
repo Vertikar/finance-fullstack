@@ -18,6 +18,12 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] Bucket views in the Cash Flow and Pay Cycle tabs (Phase 1 only added Overview card + Payments filter) #frontend #pr-26
 - [ ] Admin page for category management — add/rename/re-bucket/retire categories + colour picker, CRUD over the `categories` table #frontend #backend #pr-26
 - [ ] Add FK `entries.category` → `categories(id)` once the category admin page lands (kept as free-text TEXT for now to avoid a risky data migration) #backend #pr-26
+- [ ] `.env` is tracked in git despite the README's "Never commit `.env`" — untrack it, add it to `.gitignore`, and rotate the committed `DB_PASSWORD` / `JWT_SECRET` #chore #pr-31
+- [ ] Warn on restore when the dump's `schema_migrations` version doesn't match the migrations embedded in the running API binary, instead of leaving it to `make db-version` after the fact #devex #pr-31
+- [ ] Write backups to a `backups/` directory rather than the project root #devex #pr-31
+- [ ] `COMMENT ON EXTENSION "uuid-ossp"` in a dump requires extension ownership; under the new `ON_ERROR_STOP=1` this would abort a restore run as a non-owner role. Add `--no-comments` to `make backup` if that ever bites #backend #pr-31
+- [ ] Fail fast on migration errors instead of crash-looping, and make the error message name both versions (issue 1, items 1–2) #backend
+- [ ] CI check for migration hygiene — up/down parity, contiguous versions, up→down→up round-trip (issue 2) #ci #backend
 
 ### In Progress
 
