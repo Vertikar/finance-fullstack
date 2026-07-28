@@ -15,6 +15,37 @@ function isIdentified(commit) {
 }
 
 /**
+ * Copy via a throwaway textarea and the deprecated `document.execCommand`.
+ *
+ * This is the only programmatic copy available on a plain-HTTP origin, where
+ * `navigator.clipboard` is undefined because the page isn't a secure context.
+ * Returns whether the copy actually happened.
+ */
+function legacyCopy(text) {
+  const previous = document.activeElement;
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    // Off-screen but still focusable — `display: none` would not be selectable.
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    document.body.appendChild(ta);
+    ta.focus();                            // execCommand copies the *focused* selection
+    ta.select();
+    ta.setSelectionRange(0, text.length);  // iOS Safari ignores select() alone
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  } finally {
+    // Hand focus back, so dismissing with Escape still works afterwards.
+    if (previous && typeof previous.focus === "function") previous.focus();
+  }
+}
+
+/**
  * The web bundle's own build info.
  *
  * CRA inlines REACT_APP_* at build time (see frontend/Dockerfile), so in a real
@@ -101,33 +132,43 @@ export default function About({ T: TProp, isMobile = false, onClose, themeKey = 
     !loading && !failed &&
     isIdentified(web.commit) && isIdentified(apiCommit) && web.commit !== apiCommit;
 
-  // navigator.clipboard is absent in jsdom and on non-HTTPS origins — hide the
-  // button rather than offer one that throws.
-  const canCopy =
-    typeof navigator !== "undefined" &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.writeText === "function";
+  // "idle" | "copied" | "manual" — see handleCopy.
+  const [copyState, setCopyState] = useState("idle");
 
-  const [copied, setCopied] = useState(false);
+  const report = [
+    "App version:  " + web.version,
+    "App commit:   " + web.commit,
+    "App built:    " + (web.buildTime || PLACEHOLDER),
+    "API version:  " + apiVersion,
+    "API commit:   " + apiCommit,
+    "API built:    " + (failed || loading ? apiBuildTime : (apiInfo.build_time || PLACEHOLDER)),
+    "API Go:       " + apiGoVersion,
+  ].join("\n");
 
-  const handleCopy = useCallback(() => {
-    const block = [
-      "App version:  " + web.version,
-      "App commit:   " + web.commit,
-      "App built:    " + (web.buildTime || PLACEHOLDER),
-      "API version:  " + apiVersion,
-      "API commit:   " + apiCommit,
-      "API built:    " + (failed || loading ? apiBuildTime : (apiInfo.build_time || PLACEHOLDER)),
-      "API Go:       " + apiGoVersion,
-    ].join("\n");
-    navigator.clipboard.writeText(block).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      },
-      () => {},
-    );
-  }, [web, apiInfo, apiVersion, apiCommit, apiBuildTime, apiGoVersion, failed, loading]);
+  const handleCopy = useCallback(async () => {
+    // Preferred path. navigator.clipboard only exists in a secure context —
+    // HTTPS or localhost — so this is unavailable whenever the app is reached
+    // over plain HTTP on a LAN address, which is the normal way to open it on
+    // a phone. Hence the fallbacks below rather than hiding the button.
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(report);
+        setCopyState("copied");
+        setTimeout(() => setCopyState("idle"), 2000);
+        return;
+      } catch {
+        // Permission denied or the API is present but blocked — try the legacy path.
+      }
+    }
+    if (legacyCopy(report)) {
+      setCopyState("copied");
+      setTimeout(() => setCopyState("idle"), 2000);
+      return;
+    }
+    // Nothing programmatic worked. Show the text instead so it can still be
+    // selected and copied by hand — the point is getting it into a bug report.
+    setCopyState("manual");
+  }, [report]);
 
   // ── Styles ──────────────────────────────────────────────────────────────────
   // Mirrors the Add/Edit modal in App.js so there is one visual language: same
@@ -175,6 +216,16 @@ export default function About({ T: TProp, isMobile = false, onClose, themeKey = 
       fontFamily: mono, fontSize: 10, color: T.warn, lineHeight: 1.6,
       background: T.bgSubtle, border: `1px solid ${T.border2}`,
       borderRadius: 8, padding: "10px 14px", marginTop: 14,
+    },
+    manualBox: {
+      width: "100%", marginTop: 14, minHeight: 132, resize: "vertical",
+      background: T.bgInner, border: `1px solid ${T.border2}`, color: T.text,
+      borderRadius: 8, padding: "10px 12px",
+      fontFamily: mono, fontSize: 11, lineHeight: 1.6,
+    },
+    manualHint: {
+      fontFamily: mono, fontSize: 10, color: T.textMuted,
+      marginTop: 8, lineHeight: 1.6,
     },
     btnRow: { display: "flex", gap: 10, marginTop: 20 },
     btnSecondary: {
@@ -240,12 +291,26 @@ export default function About({ T: TProp, isMobile = false, onClose, themeKey = 
           </div>
         )}
 
+        {copyState === "manual" && (
+          <>
+            <textarea
+              style={S.manualBox}
+              readOnly
+              value={report}
+              aria-label="Build info for copying"
+              onFocus={e => e.target.select()}
+              autoFocus
+            />
+            <div style={S.manualHint}>
+              This browser blocked the copy — select the text above instead.
+            </div>
+          </>
+        )}
+
         <div style={S.btnRow}>
-          {canCopy && (
-            <button onClick={handleCopy} style={S.btnSecondary}>
-              {copied ? "Copied" : "Copy"}
-            </button>
-          )}
+          <button onClick={handleCopy} style={S.btnSecondary}>
+            {copyState === "copied" ? "Copied" : "Copy"}
+          </button>
           <button onClick={onClose} style={S.btnPrimary}>Close</button>
         </div>
       </div>

@@ -217,29 +217,44 @@ describe('About — dismissal', () => {
 });
 
 // ── Copy button ─────────────────────────────────────────────────────────────
+//
+// The button must be present regardless of clipboard support. navigator.clipboard
+// only exists in a secure context, so on a plain-HTTP LAN address — how the app
+// is normally opened on a phone — it is undefined and the legacy path is the
+// only one that works.
 describe('About — copy button', () => {
-  test('is hidden when navigator.clipboard is unavailable', async () => {
-    mockFetch.mockReturnValueOnce(jsonResponse(API_BUILD));
-    const About = stubWebBuild();
-
-    render(<About onClose={jest.fn()} />);
-
-    expect(screen.queryByText('Copy')).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('go1.22.5')).toBeInTheDocument());
+  afterEach(() => {
+    delete navigator.clipboard;
+    delete document.execCommand;
   });
 
-  test('copies all build fields when the clipboard is available', async () => {
+  const assertFullReport = (block) => {
+    expect(block).toContain('v9.9.9');      // frontend version
+    expect(block).toContain('abc1234');     // frontend commit
+    expect(block).toContain('v1.2.3');      // API version
+    expect(block).toContain('f280cb6');     // API commit
+    expect(block).toContain('go1.22.5');    // API Go version
+  };
+
+  async function renderLoaded() {
+    mockFetch.mockReturnValueOnce(jsonResponse(API_BUILD));
+    const About = stubWebBuild({ version: 'v9.9.9', commit: 'abc1234' });
+    render(<About onClose={jest.fn()} />);
+    await waitFor(() => expect(screen.getByText('go1.22.5')).toBeInTheDocument());
+  }
+
+  test('is rendered even when navigator.clipboard is unavailable', async () => {
+    await renderLoaded();
+    expect(screen.getByText('Copy')).toBeInTheDocument();
+  });
+
+  test('copies all build fields via navigator.clipboard when available', async () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText }, configurable: true,
     });
 
-    mockFetch.mockReturnValueOnce(jsonResponse(API_BUILD));
-    const About = stubWebBuild({ version: 'v9.9.9', commit: 'abc1234' });
-
-    render(<About onClose={jest.fn()} />);
-    await waitFor(() => expect(screen.getByText('go1.22.5')).toBeInTheDocument());
-
+    await renderLoaded();
     fireEvent.click(screen.getByText('Copy'));
 
     // Await the confirmation so the state update that follows the clipboard
@@ -247,14 +262,62 @@ describe('About — copy button', () => {
     await waitFor(() => expect(screen.getByText('Copied')).toBeInTheDocument());
 
     expect(writeText).toHaveBeenCalledTimes(1);
-    const block = writeText.mock.calls[0][0];
-    expect(block).toContain('v9.9.9');      // frontend version
-    expect(block).toContain('abc1234');     // frontend commit
-    expect(block).toContain('v1.2.3');      // API version
-    expect(block).toContain('f280cb6');     // API commit
-    expect(block).toContain('go1.22.5');    // API Go version
+    assertFullReport(writeText.mock.calls[0][0]);
+  });
 
-    delete navigator.clipboard;
+  // The plain-HTTP case the user hit: no navigator.clipboard at all.
+  test('falls back to execCommand when navigator.clipboard is absent', async () => {
+    let copied = '';
+    document.execCommand = jest.fn(() => {
+      copied = document.activeElement.value;
+      return true;
+    });
+
+    await renderLoaded();
+    fireEvent.click(screen.getByText('Copy'));
+
+    await waitFor(() => expect(screen.getByText('Copied')).toBeInTheDocument());
+    expect(document.execCommand).toHaveBeenCalledWith('copy');
+    assertFullReport(copied);
+  });
+
+  test('falls back to execCommand when clipboard.writeText rejects', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: jest.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    });
+    document.execCommand = jest.fn(() => true);
+
+    await renderLoaded();
+    fireEvent.click(screen.getByText('Copy'));
+
+    await waitFor(() => expect(screen.getByText('Copied')).toBeInTheDocument());
+    expect(document.execCommand).toHaveBeenCalledWith('copy');
+  });
+
+  // Last resort — show the text so it can be selected by hand.
+  test('reveals a selectable textarea when every copy path fails', async () => {
+    document.execCommand = jest.fn(() => false);
+
+    await renderLoaded();
+    expect(screen.queryByLabelText('Build info for copying')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Copy'));
+
+    const box = await screen.findByLabelText('Build info for copying');
+    assertFullReport(box.value);
+    expect(box).toHaveAttribute('readonly');
+    expect(screen.getByText(/select the text above/i)).toBeInTheDocument();
+  });
+
+  test('does not claim success when the copy failed', async () => {
+    document.execCommand = jest.fn(() => false);
+
+    await renderLoaded();
+    fireEvent.click(screen.getByText('Copy'));
+
+    await screen.findByLabelText('Build info for copying');
+    expect(screen.queryByText('Copied')).not.toBeInTheDocument();
   });
 });
 
