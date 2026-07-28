@@ -22,6 +22,10 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] `.env` is tracked in git despite the README's "Never commit `.env`" — untrack it, add it to `.gitignore`, and rotate the committed `DB_PASSWORD` / `JWT_SECRET` #chore #pr-33
 - [ ] Write backups to a `backups/` directory rather than the project root #devex #pr-33
 - [ ] `COMMENT ON EXTENSION "uuid-ossp"` requires extension ownership, so under `ON_ERROR_STOP=1` a restore run as a non-owner role would abort. Add `--no-comments` to `make backup` if that ever bites #backend #pr-33
+- [ ] Apply the Escape-to-close handler to the existing Add/Edit and Import modals — `About.js` handles it, the others don't, so dismissal is inconsistent #frontend #pr-37
+- [ ] CI's `docker-build` job passes no version build args, so images built there report `dev`/`unknown`. Add a release workflow that tags and builds with the real `VERSION` #chore #pr-37
+- [ ] Surface the migration/schema version in the About dialog once there's a reason to debug it #backend #pr-37
+- [ ] Link the commit hash in the About dialog to its GitHub commit URL once the repo's remote is stable #frontend #pr-37
 - [ ] `restore` drops schema `public` in a separate transaction from the load, so a backup that passes validation but still fails to load (disk full, permissions) leaves an empty schema. Closing the gap needs the drop inside the load's transaction — `pg_restore --clean --if-exists --single-transaction`, which only drops objects present in the archive #devex #pr-34
 - [ ] Fail fast on migration errors instead of crash-looping, and make the error message name both versions (issue 1, items 1–2) #backend
 - [ ] The round trip only proves each down reverses its up structurally — it compares schema, not data. A down that drops and recreates a table with the right shape but loses its seed rows still passes #ci #backend #pr-35

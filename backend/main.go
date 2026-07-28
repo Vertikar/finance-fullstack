@@ -25,6 +25,15 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// Build metadata, overridden at link time via -ldflags -X (see backend/Dockerfile).
+// The defaults are what `go run` and `go test` see; the handler applies the same
+// fallbacks so an un-stamped binary still serves a sensible response.
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildTime = ""
+)
+
 func main() {
 	database := db.Connect()
 	defer database.Close()
@@ -44,6 +53,10 @@ func main() {
 	categoriesH := &handlers.CategoriesHandler{DB: database}
 	importExportH := &handlers.ImportExportHandler{DB: database}
 	settingsH := &handlers.SettingsHandler{DB: database}
+
+	// No DB — the build metadata is stamped into the binary, passed in explicitly
+	// rather than read from the package globals inside the handler.
+	versionH := &handlers.VersionHandler{Version: version, Commit: commit, BuildTime: buildTime}
 
 	r := chi.NewRouter()
 
@@ -80,6 +93,10 @@ func main() {
 
 		// Category catalogue (global reference data with bucket + colour)
 		r.Get("/api/categories", categoriesH.List)
+
+		// Build info for the About dialog. Authenticated deliberately — /health
+		// is the public endpoint; this one names the deployed commit.
+		r.Get("/api/version", versionH.Get)
 
 		// Variable-expense budgets (monthly allowances per category)
 		r.Get("/api/budgets", budgetsH.List)

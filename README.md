@@ -170,6 +170,15 @@ Valid `frequency` values: `weekly` · `fortnightly` · `monthly` · `quarterly` 
 |--------|-----------|----------------------|
 | GET    | `/health` | `{"status": "ok"}`   |
 
+### Version (JWT required)
+
+| Method | Path           | Returns                                                                                   |
+|--------|----------------|-------------------------------------------------------------------------------------------|
+| GET    | `/api/version` | `{"version":"v1.0.0","commit":"f280cb6","build_time":"2026-07-27T02:14:09Z","go_version":"go1.22.5"}` |
+
+Authenticated deliberately — `/health` is the public liveness endpoint; this one names the
+deployed commit. See [Versioning](#versioning).
+
 ---
 
 ## Testing
@@ -278,6 +287,48 @@ Copy `.env.example` to `.env` before first run. Never commit `.env`.
 | `DB_NAME`     | `finance`                         | PostgreSQL database name             |
 | `JWT_SECRET`  | `change-me-in-production-…`       | JWT signing secret — **change this** |
 | `TZ`          | `Australia/Sydney`                | Container timezone                   |
+
+---
+
+## Versioning
+
+The running build is shown in the **About dialog** — the ⓘ button in the header, next to
+Sign Out. It reports the web bundle's version, commit and build time alongside the API's
+(from `GET /api/version`), so a bug report can name an exact build, and a mismatch between
+the two halves of the app is visible rather than mysterious.
+
+**Tag releases** — the version string is `git describe --tags --always --dirty`, so with no
+tags in the repo it degrades to a bare commit hash:
+
+```bash
+git tag -a v1.0.0 -m "v1.0.0"
+git push origin v1.0.0
+```
+
+There is nothing to bump by hand: the next `make up` picks the new tag up.
+
+**How the values flow.** Neither Docker build context (`./backend`, `./frontend`) contains
+`.git`, so neither build can shell out to git. The Makefile computes the values once on the
+host and passes them down:
+
+```
+Makefile (VERSION / COMMIT / BUILD_TIME)
+  └─ docker-compose.yml  build.args
+       ├─ backend/Dockerfile   → -ldflags -X main.version=…  → GET /api/version
+       └─ frontend/Dockerfile  → ARG/ENV REACT_APP_*         → baked into the bundle
+```
+
+Two things follow from that:
+
+- **Build them through `make`.** A bare `docker compose build` passes no args and every
+  value falls back to `dev` / `unknown`. The image still works; it just can't identify itself.
+- **The frontend values are build-time only.** Create React App inlines `REACT_APP_*` into
+  the bundle during `npm run build`, so there is no runtime override — setting them in the
+  compose `environment:` block does nothing. Changing the version means rebuilding the image.
+
+A **`-dirty` suffix** (`v1.0.0-3-gf280cb6-dirty`) means the build came from a working tree
+with uncommitted changes. Expect it during local development; treat it as a warning on
+anything deployed.
 
 ---
 
