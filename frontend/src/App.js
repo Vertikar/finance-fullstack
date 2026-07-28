@@ -7,6 +7,7 @@ import ImportModal from "./ImportModal";
 import PayCycle from "./PayCycle";
 import Budget from "./Budget";
 import UserSettings from "./UserSettings";
+import About from "./About";
 import {
   toMonthly, buildCashFlow, sumActualForMonth, parseLocal, totalMonthlyBudgets,
   CATEGORIES, CAT_COLORS, CAT_BUCKETS, BUCKET_META, BUCKET_ORDER,
@@ -128,6 +129,7 @@ export default function App() {
   const [bucketFilter, setBucketFilter] = useState("all");
   const [apiError,      setApiError]      = useState("");
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showAbout,       setShowAbout]       = useState(false);
   const [exportLoading,   setExportLoading]   = useState(false);
 
   const loadEntries = useCallback(async () => {
@@ -431,6 +433,21 @@ export default function App() {
           >
             {themeKey === "dark" ? <SunIcon color={T.textMid} /> : <MoonIcon color={T.textMid} />}
             {!isMobile && (themeKey === "dark" ? "Light" : "Dark")}
+          </button>
+          {/* Icon-only on both breakpoints, for symmetry with the theme toggle.
+              min 34px so it clears the tap-target floor on mobile while matching
+              the height of the buttons either side of it. */}
+          <button
+            onClick={() => setShowAbout(true)}
+            aria-label="About this app"
+            title="About this app"
+            style={{
+              background: T.bgSubtle, border: `1px solid ${T.border2}`, color: T.textMid,
+              borderRadius: 8, minWidth: 34, minHeight: 34, padding: "0 8px",
+              cursor: "pointer", ...S.mono, fontSize: 13, lineHeight: 1,
+            }}
+          >
+            ⓘ
           </button>
           <button
             onClick={handleLogout}
@@ -963,6 +980,10 @@ export default function App() {
           onClose={() => setShowImportModal(false)}
           onImported={loadEntries}
         />
+      )}
+      {/* ── ABOUT MODAL ────────────────────────────────────────────────────── */}
+      {showAbout && (
+        <About T={T} isMobile={isMobile} onClose={() => setShowAbout(false)} />
       )}
     </div>
   );

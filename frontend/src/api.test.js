@@ -137,6 +137,29 @@ describe('api.getCategories', () => {
   });
 });
 
+describe('api.getVersion', () => {
+  test('calls the /api/version endpoint with the auth header', async () => {
+    localStorageMock.getItem.mockReturnValueOnce('tok-123');
+    mockFetch.mockReturnValueOnce(
+      jsonResponse({
+        version: 'v1.2.3', commit: 'f280cb6',
+        build_time: '2026-07-27T02:14:09Z', go_version: 'go1.22.5',
+      })
+    );
+    const result = await api.getVersion();
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/version');
+    expect(opts.headers['Authorization']).toBe('Bearer tok-123');
+    expect(result.version).toBe('v1.2.3');
+    expect(result.go_version).toBe('go1.22.5');
+  });
+
+  test('throws on non-ok response', async () => {
+    mockFetch.mockReturnValueOnce(jsonResponse({ error: 'unauthorized' }, 401));
+    await expect(api.getVersion()).rejects.toThrow('unauthorized');
+  });
+});
+
 describe('api.getBudgets', () => {
   test('calls the /api/budgets endpoint', async () => {
     mockFetch.mockReturnValueOnce(jsonResponse([]));

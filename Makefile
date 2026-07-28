@@ -14,6 +14,18 @@
 DB_USER ?=
 DB_NAME ?=
 
+# ── Build metadata ───────────────────────────────────────────────────────────
+# Neither Docker build context (./backend, ./frontend) contains .git, so neither
+# build can shell out to git. Compute the values once here on the host and let
+# compose interpolate them into build.args.
+#
+# Exported at the variable level rather than per-recipe, so every target that
+# builds — up, build, reset-db — picks them up. Each has a fallback, so a bare
+# `docker compose build` (no make) still produces a working image.
+export VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+export COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+export BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
 # Resolved inside the container: explicit override wins, else the container's own value.
 DBU = $${DB_USER:-$$POSTGRES_USER}
 DBN = $${DB_NAME:-$$POSTGRES_DB}

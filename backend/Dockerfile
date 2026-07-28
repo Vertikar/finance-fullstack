@@ -18,7 +18,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o finance-api .
+
+# Build metadata, injected into the package-level vars in main.go and served by
+# GET /api/version. Declared here, AFTER `go mod download`, on purpose:
+# BUILD_TIME changes on every invocation, so an ARG any earlier would invalidate
+# the dependency layer and force a full re-download each build.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILD_TIME}" \
+      -o finance-api .
 
 # ── Stage 2: Run ──────────────────────────────────────────────────────────────
 FROM alpine:3.20

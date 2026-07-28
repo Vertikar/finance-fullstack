@@ -42,6 +42,8 @@ export const api = {
 
   getCategories: () => request("/categories"),
 
+  getVersion: () => request("/version"),
+
   getBudgets: () => request("/budgets"),
 
   createBudget: (budget) =>
