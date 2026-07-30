@@ -51,6 +51,7 @@ func main() {
 	entriesH := &handlers.EntriesHandler{DB: database}
 	budgetsH := &handlers.BudgetsHandler{DB: database}
 	categoriesH := &handlers.CategoriesHandler{DB: database}
+	transactionsH := &handlers.TransactionsHandler{DB: database}
 	importExportH := &handlers.ImportExportHandler{DB: database}
 	settingsH := &handlers.SettingsHandler{DB: database}
 
@@ -109,6 +110,9 @@ func main() {
 		// resolve correctly ahead of any future /api/entries/{id} GET route.
 		r.Get("/api/entries/export", importExportH.Export)
 		r.Post("/api/entries/import", importExportH.Import)
+
+		// Bank-transaction import (raw statement CSVs)
+		r.Post("/api/transactions/import", transactionsH.Import)
 
 		// User settings
 		r.Get("/api/settings/pay-cycle", settingsH.GetPayCycle)

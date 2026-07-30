@@ -164,7 +164,7 @@ CREATE TABLE categories (
 -- 007: import machinery
 CREATE TABLE import_sources (
     id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id    UUID REFERENCES users(id) ON DELETE CASCADE,  -- NULL = built-in global preset
     label      TEXT NOT NULL,          -- "Frollo", "CommBank", …
     column_map JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -190,8 +190,9 @@ CREATE TABLE transactions (
     transaction_date DATE NOT NULL,
     account_name     TEXT,
     provider_name    TEXT,
-    category_raw     TEXT,                    -- source category
+    category_raw     TEXT,                    -- source category, verbatim
     bucket_raw       TEXT,                    -- Frollo budget_category, when present
+    category         TEXT,                    -- assigned app category; NULL until review
     bucket           TEXT CHECK (bucket IN ('income','living','lifestyle','goals')),
                                               -- per-transaction override; NULL = inherit
                                               -- from category's default bucket
@@ -209,6 +210,19 @@ CREATE INDEX idx_transactions_user_date ON transactions(user_id, transaction_dat
 For raw bank CSVs without a transaction ID, `external_id` is a computed hash of
 `(date, amount, normalized description, account)` so re-importing an overlapping export
 dedupes rather than duplicating.
+
+**Implementation notes (as shipped in migration 007).** Two contradictions in the DDL above were
+resolved while building it:
+
+1. **`transactions.category` added.** The original table had only `category_raw`, leaving the
+   documented `COALESCE(transactions.bucket, category.bucket)` with nothing to join on. The
+   assigned app category is now its own nullable `TEXT` column — free-text with no FK, matching
+   how `entries.category` is treated. It is populated at import when the source's category maps to
+   a known app category (via the preset's `category_aliases`, §3) and left `NULL` otherwise, for
+   the review step to fill in.
+2. **`import_sources.user_id` is nullable.** §7 calls for globally seeded presets, which have no
+   owner. `NULL` now means a built-in, read-only preset; a non-`NULL` value is a user's own saved
+   mapping. A partial unique index on `(label) WHERE user_id IS NULL` keeps built-in labels unique.
 
 ## 5. Detection algorithm
 
@@ -246,6 +260,12 @@ globally. Auto-detect the preset from the header row where possible.
 | **ubank** | Headered CSV: Date, Description, Debit, Credit, Balance (debit/credit as separate columns → merge to signed amount). |
 | **ING Direct** | Headered CSV: Date (DD/MM/YYYY), Description, Credit, Debit, Balance — same merge treatment. |
 | **AustralianSuper** | Transaction export: Date, Transaction type, Description, Amount. Almost entirely contributions/returns → categories Super Contributions / Investment, bucket goals/income. Low volume (1 row in sample). |
+
+**Status:** only the **Frollo** preset ships so far. The other five are deferred until a real
+export of each is available to confirm its layout — guessing at column names would produce
+presets that silently mis-map. The mapper engine already supports everything they need
+(headerless files addressed by column index, debit/credit column merging, per-format date
+layouts), so adding one is a new `import_sources` row, not a code change.
 
 Exact column layouts to be verified against a real export of each during implementation —
 formats above are from documented exports and may have shifted. Each preset ships with a

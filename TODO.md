@@ -18,6 +18,11 @@ in its originating PR's `## Testing & follow-up` checklist.
 - [ ] Bucket views in the Cash Flow and Pay Cycle tabs (Phase 1 only added Overview card + Payments filter) #frontend #pr-26
 - [ ] Admin page for category management — add/rename/re-bucket/retire categories + colour picker, CRUD over the `categories` table #frontend #backend #pr-26
 - [ ] Add FK `entries.category` → `categories(id)` once the category admin page lands (kept as free-text TEXT for now to avoid a risky data migration) #backend #pr-26
+- [ ] Add the remaining import presets (CommBank, Up, ubank, ING Direct, AustralianSuper) once a real export of each is available to confirm its column layout — the mapper already supports headerless files, debit/credit merging and per-format dates, so each is an `import_sources` row #backend #pr-28
+- [ ] Map Up's own category taxonomy to app categories (initially left in `category_raw` for the review step) #backend #pr-28
+- [ ] Refactor `import_export.go`'s inline date parsing to use `importer.ParseDate` — the entries importer still has its own nested if/else version accepting a narrower set of formats #backend #pr-28
+- [ ] `backend/testdata/finance.csv` is dead weight: it duplicates the `seedCSV` const in `fixtures_test.go` byte-for-byte and nothing reads it, so the two can drift silently. Either wire the tests to read the file or delete it #backend #pr-28
+- [ ] `GET/POST /api/import-sources` for managing user-level saved column maps (built-in presets stay read-only) — schema supports it via the nullable `import_sources.user_id` #backend #pr-28
 - [ ] Upgrade the bank-statement hint in `ImportModal` from static text into a button that opens the transaction importer, once `TransactionImport.js` exists (it currently explains the distinction but can't link anywhere) #frontend #pr-30
 - [ ] `.env` is tracked in git despite the README's "Never commit `.env`" — untrack it, add it to `.gitignore`, and rotate the committed `DB_PASSWORD` / `JWT_SECRET` #chore #pr-33
 - [ ] Write backups to a `backups/` directory rather than the project root #devex #pr-33
